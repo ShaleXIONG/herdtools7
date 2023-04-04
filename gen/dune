@@ -14,7 +14,8 @@
   nexts
   classify
   diy
-  norm)
+  norm
+  mcat2config)
  (public_names
   readRelax7
   atoms7
@@ -25,7 +26,8 @@
   nexts7
   classify7
   diy7
-  norm7)
+  norm7
+  mcat2config7)
  (libraries herdtools unix)
  (modules_without_implementation
   archLoc
