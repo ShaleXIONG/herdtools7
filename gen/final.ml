@@ -289,6 +289,7 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
       | [] -> ()
       | locs -> fprintf chan "locations [%s]\n" (String.concat " " locs)
 
+    (* TODO change to dump the fault *)
     let dump_final chan (f,flts) =
       let loc_flts =
         if do_kvm then
