@@ -220,14 +220,14 @@ module Make (O:Config) (E:Edge.S) :
   let debug_val = Code.pp_v ~hexa:O.hexa
 
   let debug_vec v =
-    String.concat ", " (List.map debug_val (Array.to_list v))
+    String.concat ", "  @@ List.map debug_val @@ Array.to_list v
 
   let debug_evt e =
     let pp_v =
       match e.bank with
       | Pte -> PteVal.pp e.pte
       | (Ord|Pair|Tag|CapaTag|CapaSeal|VecReg _|Instr) -> debug_val e.v in
-    sprintf "%s%s %s %s%s%s%s%s"
+    sprintf "dir:%s atom:%s loc:%s cell:%s value:%s tag:%s morello:%s vector_value:%s"
       (debug_dir e.dir)
       (debug_atom e.atom)
       (Code.pp_loc e.loc)
@@ -262,13 +262,19 @@ module Make (O:Config) (E:Edge.S) :
     let rec iter chan = function
       | [] -> ()
       | [n] -> debug_node chan n
-      | n::ns -> fprintf chan "%a,%a" debug_node n iter ns in
+      | n::ns -> fprintf chan "%a, %a" debug_node n iter ns in
     iter chan ns
+  
+  let debug_list_nodes chan nss =
+    let rec iter chan = function
+      | [] -> ()
+      | [n] -> debug_nodes chan n
+      | n::nss -> fprintf chan "%a\n%a" debug_nodes n iter nss in
+    iter chan nss
 
   let debug_cycle chan n =
     let rec do_rec m =
-      debug_node chan m ;
-      output_char chan '\n' ;
+      fprintf chan "%a\n" debug_node m ;
       if m.next != n then do_rec m.next in
     do_rec n ;
     flush chan
@@ -295,13 +301,20 @@ let cons_cycle n c =
   c.prev <- n ;
   n
 
+(*
 let check_balance =
   let rec do_rec r = function
     | [] -> r = 0
     | e::es ->
         do_rec (match e.E.edge with E.Back _ -> r-1 | E.Leave _ -> r+1 | _ -> r) es in
   do_rec 0
+*)
 
+let check_balance es =
+  let count = es 
+    |> List.map (fun e -> match e.E.edge with E.Back _ -> -1 | E.Leave _ -> 1 | _ -> 0) 
+    |> List.fold_left ( + ) 0 in
+  count = 0
 
 let build_cycle =
 
@@ -320,7 +333,7 @@ let build_cycle =
     let c = do_rec 0 es in
     c
 
-
+(* TODO not a good idea to raise error, should return option *)
 let find_node p n =
   let rec do_rec m =
     if p m then m
@@ -451,7 +464,7 @@ let locs_len = Array.length locs
 
 let make_loc n =
   if n < locs_len then locs.(n)
-  else Printf.sprintf "x%02i" (n-locs_len)
+  else sprintf "x%02i" (n-locs_len)
 
 let next_loc e ((loc0,lab0),vs) = match E.is_fetch e with
 | true -> Code (sprintf "Lself%02i" lab0),((loc0,lab0+1),vs)
@@ -586,7 +599,7 @@ let patch_edges n =
         let e = n.edge in
         if non_insert_store e then begin
           let p = find_non_insert_store_prev n.prev in
-          if O.verbose > 0 then Printf.eprintf "Merge p=%a, n=%a\n"
+          if O.verbose > 0 then eprintf "Merge p=%a, n=%a\n"
             debug_node p debug_node n ;
           let pe = p.edge in
           let a2 = pe.E.a2 and a1 = e.E.a1 in
@@ -594,7 +607,7 @@ let patch_edges n =
             let a = merge2 a2 a1 in
             p.edge <- { pe with E.a2=a ; } ;
             n.edge <- { e  with E.a1=a ; } ;
-            if O.verbose > 1 then Printf.eprintf "    => p=%a, n=%a\n"
+            if O.verbose > 1 then eprintf "    => p=%a, n=%a\n"
               debug_node p debug_node n
           with FailMerge ->
             Warn.fatal "Impossible annotations: %s %s"
@@ -656,7 +669,7 @@ let remove_store n0 =
            Warn.fatal "Node pseudo edge %s appears in-between  %s..%s (one neighbour at least must be an external edge)"
            (E.pp_edge m.edge)  (E.pp_edge p.edge)  (E.pp_edge n.edge)
       end ;
-(*    eprintf "p=%a, m=%a\n" debug_node p debug_node m  ; *)
+    eprintf "p=%a, m=%a\n" debug_node p debug_node m  ; 
       let prev_d = E.dir_tgt p.edge in
       let d = match prev_d,my_d with
       | Irr,Irr ->
@@ -785,6 +798,28 @@ let set_same_loc st n0 =
 
 (* Set the values of write events *)
 
+(*
+  let split_by_loc n =
+    (* Traverse the node cycle via tail recursion.
+       Each iteration process the `cur` node, and 
+       collect the result to `acc`. *)
+    let rec do_rec end_node cur acc = 
+      let next_acc = if cur.evt.loc = cur.prev.evt.loc then 
+      match acc with
+        | ms::rem -> (cur::ms)::rem
+        | [] -> assert false
+      else [cur]::acc in
+      (* Termination condition when reaching the beginning *)
+      if cur.next == end_node then begin
+        (*TODO: why is this assert? *)
+        assert (cur.evt.loc <> cur.next.evt.loc) ;
+        next_acc
+      end else
+        (do_rec [@tailcall]) end_node cur.next next_acc in
+  do_rec n n [[]] 
+*)
+  (* Split the cycle into segments, each contains
+     events for the same location *)
   let split_by_loc n =
     let rec do_rec m =
       let r =
@@ -922,8 +957,8 @@ let set_same_loc st n0 =
 
   let set_all_write_val nss =
     let _,initvals =
-      List.fold_right
-        (fun ns (k,env as r) ->
+      List.fold_left
+        (fun (k,env as r) ns ->
           match ns with
           | [] -> r
           | n::_ ->
@@ -940,7 +975,7 @@ let set_same_loc st n0 =
                 k+8,(next_x,k+4)::env
               else
                 k+4,env)
-        nss (0,[]) in
+        (0,[]) nss in
     initvals
 
   let set_write_v n =
@@ -969,8 +1004,13 @@ let set_same_loc st n0 =
           split_one_loc m
         with Not_found -> Warn.fatal "cannot set write values"
       | Exit -> Warn.fatal "cannot set write values" in
-    let initvals = set_all_write_val nss in
-    nss,initvals
+      eprintf "splited list: [%a]\n" debug_list_nodes nss;
+      let initvals = set_all_write_val nss in
+      eprintf "splited list: [%a]\n" debug_list_nodes nss;
+      List.map (fun (str,i) -> sprintf "(%s, %d)" str i) initvals
+            |> String.concat ", "
+            |> eprintf "------[%s]\n";
+      nss,initvals
 
 (* Loop over every node and set the expected value from the previous node *)
 let set_dep_v nss =
@@ -992,10 +1032,10 @@ let set_dep_v nss =
 let set_read_v n cell =
   let e = n.evt in
   let v = E.extract_value cell.(0) e.atom in
-(* eprintf "SET READ: cell=0x%x, v=0x%x\n" cell v ; *)
+eprintf "SET READ: cell=0x%x, v=0x%x\n" cell.(0) v ;
   let e = { e with v=v; } in
-  n.evt <- e
-(*  eprintf "AFTER %a\n" debug_node n *)
+  n.evt <- e;
+ eprintf "AFTER %a\n" debug_node n
 
 let set_read_pair_v n cell =
   let e = n.evt in
@@ -1043,11 +1083,13 @@ let do_set_read_v =
               | Pte|Ord|Pair|VecReg _ ->
                  st in
             do_rec st
+              (* cell *)
               (match bank with
                | Ord|Pair|VecReg _ ->
                   if Code.is_data n.evt.loc then n.evt.cell
                   else cell
                | Tag|CapaTag|CapaSeal|Pte|Instr -> cell)
+              (*  pte_cell *)
               (match bank with
                | Ord|Pair|Tag|CapaTag|CapaSeal|VecReg _|Instr -> pte_cell
                | Pte -> n.evt.pte)
@@ -1073,7 +1115,6 @@ let set_read_v nss =
         let vf = do_set_read_v ns in
         (n.evt.loc,vf)::k)
     nss []
-
 (* zyva... *)
 
 let finish n =
@@ -1118,10 +1159,10 @@ let finish n =
     eprintf "READ VALUES\n" ;
     debug_cycle stderr n ;
     eprintf "FINAL VALUES [%s]\n"
-      (String.concat ","
-         (List.map
+      (vs |> List.map
             (fun (loc,(v,_pte)) -> sprintf "%s -> 0x%x"
-                (Code.pp_loc loc) v) vs))
+                (Code.pp_loc loc) v)
+          |> String.concat "," )
   end ;
   if O.variant Variant_gen.Self then check_fetch n;
   initvals
@@ -1379,7 +1420,7 @@ let rec group_rec x ns = function
           | [] -> k
           | [ns] ->
              if O.verbose > 1 then
-               Printf.eprintf "Standard write sequence on %s: %s\n"
+               eprintf "Standard write sequence on %s: %s\n"
                  (Code.pp_loc loc)
                  (String.concat " "
                     (List.map str_node ns)) ;
