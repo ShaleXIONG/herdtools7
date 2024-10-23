@@ -738,8 +738,7 @@ let max_set = IntSet.max_elt
     | [],_ -> Warn.fatal "No proc"
 (*    | [_],Cycle -> Warn.fatal "One proc" *)
     | _,_ ->
-        (* f: f.fenv aka location * vset *)
-        let i,c,(m,f),ios,env =
+        let i,c,(m,final_value),ios,env =
           if
             let len =  List.length splitted in
             O.nprocs <= 0 ||
@@ -748,7 +747,7 @@ let max_set = IntSet.max_elt
             let ess = List.map (List.map (fun n -> n.C.edge)) splitted in
             if ok ess then
               (* - `i` is the initial value.
-                 - `cs` pseudo code list 
+                 - `cs` pseudo code list
                  - `m` location to its last affect events?
                  - `fs` final state
                  - `ios`
@@ -771,7 +770,7 @@ let max_set = IntSet.max_elt
               A.LocMap.add aloc (Array (ty,sz)) k)
           env_wide env in
         let env =
-          let ptes = A.LocSet.of_list (F.extract_ptes f) in
+          let ptes = A.LocSet.of_list (F.extract_ptes final_value) in
           List.fold_left
             (fun m (loc,_) ->
               try
@@ -781,7 +780,7 @@ let max_set = IntSet.max_elt
                 let t =
                   if A.LocSet.mem loc ptes then TypBase.pteval_t else O.typ in
                 A.LocMap.add loc (Typ t) m)
-            env f in
+            env final_value in
         let env =
           let globals = C.get_globals ~init:initvals n in
           let typ =
@@ -812,14 +811,14 @@ let max_set = IntSet.max_elt
                     ( fun n -> let evt = n.C.evt in
                         match evt.C.dir,evt.C.loc,evt.C.bank with
                         | Some W,Data x,Tag -> Some x
-                        | _ -> None 
-                    ) ns ) 
+                        | _ -> None
+                    ) ns )
                 |> List.flatten
                 |> StringSet.of_list in
               ns
               |> List.filter_map
                 (fun n -> match n.C.evt.C.loc,n.C.evt.C.bank with
-                | Data x,Ord when StringSet.mem x tagchange 
+                | Data x,Ord when StringSet.mem x tagchange
                     -> Some (None, None, (* no instruction label *) x)
                 | _ -> None)
               |> Final.FaultSet.of_list
@@ -830,7 +829,7 @@ let max_set = IntSet.max_elt
                     match n.C.prev.C.edge.edge,evt.C.loc,evt.C.bank with
                 | Dp (dp,_,_),Data x,CapaTag when A.is_addr dp
                           -> Some (None, None, (* no instruction label *) x)
-                | Dp (dp,_,_),Data x,CapaSeal when A.is_addr dp 
+                | Dp (dp,_,_),Data x,CapaSeal when A.is_addr dp
                           -> Some (None, None, (* no instruction label *) x)
                 | _ -> None)
               |> Final.FaultSet.of_list
@@ -845,7 +844,7 @@ let max_set = IntSet.max_elt
             else Final.FaultSet.empty in (* no fault-related flag *)
           (* END of get_faults *)
           (* Extract faults from proc `i` and its node list `ns` *)
-          List.mapi (fun i ns -> i,get_faults ns) splitted 
+          List.mapi (fun i ns -> i,get_faults ns) splitted
           |> List.filter (fun (_,xs) -> not (Final.FaultSet.is_empty xs)) in
         (* Add the all the pair in `last_ptes` into the post-condition `final_env` *)
         let f =

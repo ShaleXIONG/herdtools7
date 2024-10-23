@@ -183,7 +183,7 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
         let bank = evt.C.C.bank in
         (* variable `v` holds the observable value from the event `evt`.
           Note that different event might observe different type of value,
-          e.g. a plain value for plain read event, 
+          e.g. a plain value for plain read event,
           but a pte value for a pte read event. *)
         let v = match evt.C.C.dir with
         | Some Code.R ->
@@ -302,8 +302,8 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
 
     let dump_one_flt proc (opt_label, opt_bool, var) =
         match opt_label, opt_bool with
-        | Some label, Some boolean 
-            -> sprintf "%sfault (%s:%s,%s)" 
+        | Some label, Some boolean
+            -> sprintf "%sfault (%s:%s,%s)"
                 (if boolean then "" else "~")
                 (Proc.pp proc) label var
         | None, None -> sprintf "fault (%s,%s)" (Proc.pp proc) var
@@ -313,9 +313,9 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
 
     let dump_flts flts =
       if do_kvm then
-        List.map (dump_flt " /\\ ") flts 
+        List.map (dump_flt " /\\ ") flts
         |> String.concat " /\\ "
-      else 
+      else
        (* The following are for memtag etc *)
        let pp = List.map (dump_flt " \\/ ") flts in
        let pp = String.concat " \\/ " pp in
@@ -324,15 +324,15 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
        | [_,xs] when FaultSet.is_singleton xs -> "~" ^ pp
        | _ -> sprintf "~(%s)" pp
 
-    let faults_to_string flts = 
+    let faults_to_string flts =
         flts |> List.map
         (fun (p,xs) ->
           FaultSet.map_list
             (fun (_,_,loc) -> sprintf "fault (P%d,%s);" p loc)
-        xs) 
+        xs)
         |> List.flatten
 
-    let dump_locations chan locs = 
+    let dump_locations chan locs =
       fprintf chan "locations [%s]\n" (String.concat " " locs)
 
     let dump_final chan (f,flts) =

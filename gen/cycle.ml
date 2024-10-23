@@ -27,9 +27,6 @@ module type S = sig
   (* TODO can be parametric by dir *)
   type event =
       { loc : loc ; ord : int;
-        (* TODO: merge `different type of value, e.g. plain value `v`
-          and pte value `pte`, and different type of tag, e.g. morello-related
-          tag into a single Value type *)
         (* memory tag *)
         tag : int ;
         (* morello *)
@@ -50,7 +47,6 @@ module type S = sig
         cell : v array ; (* Content of memory, after event *)
         tcell : v array ; (* value of tag memory after event *)
         bank : SIMD.atom Code.bank ;
-        (* TODO use an option type on `idx` *)
         idx : int ;
         (* If need to check this operation can fault.
            Label the instruction with `Label.t`. *)
@@ -195,8 +191,8 @@ module Make (O:Config) (E:Edge.S) :
       v=Code.no_value ; ins=0;dir=None; proc=(-1); atom=None; rmw=false;
       cell=[||]; tcell=[||];
       bank=Code.Ord; idx=(-1);
-      pte=pte_default; 
-      check_fault=None; 
+      pte=pte_default;
+      check_fault=None;
       check_value=None; }
 
   let make_wsi idx loc = { evt_null with dir=Some W ; loc=loc; idx=idx; v=Plain 0;}
@@ -248,7 +244,7 @@ module Make (O:Config) (E:Edge.S) :
   let debug_val = Code.pp_v ~hexa:O.hexa
 
   let debug_vec v =
-    String.concat ", " (List.map debug_val (Array.to_list v))
+    String.concat ", "  @@ List.map debug_val @@ Array.to_list v
 
   let debug_evt e =
     let pp_v =
@@ -294,8 +290,7 @@ module Make (O:Config) (E:Edge.S) :
     iter chan ns
   let debug_cycle chan n =
     let rec do_rec m =
-      debug_node chan m ;
-      output_char chan '\n' ;
+      fprintf chan "%a\n" debug_node m ;
       if m.next != n then do_rec m.next in
     do_rec n ;
     flush chan
@@ -322,13 +317,11 @@ let cons_cycle n c =
   c.prev <- n ;
   n
 
-let check_balance =
-  let rec do_rec r = function
-    | [] -> r = 0
-    | e::es ->
-        do_rec (match e.E.edge with E.Back _ -> r-1 | E.Leave _ -> r+1 | _ -> r) es in
-  do_rec 0
-
+let check_balance es =
+  let count = es
+    |> List.map (fun e -> match e.E.edge with E.Back _ -> -1 | E.Leave _ -> 1 | _ -> 0)
+    |> List.fold_left ( + ) 0 in
+  count = 0
 
 let build_cycle =
 
@@ -742,7 +735,7 @@ let remove_store n0 =
         Warn.fatal "Insert pseudo edge %s appears in-between  %s..%s (at least one neighbour must be an external edge)"
           (E.pp_edge m.edge)  (E.pp_edge p.edge)  (E.pp_edge n.edge)
       end;
-      match p.edge.E.edge with 
+      match p.edge.E.edge with
       | (E.Rf Ext | E.Fr Ext) ->
         Warn.fatal "Insert pseudo edge %s appears after external communication edge %s"
         (E.pp_edge m.edge) (E.pp_edge p.edge)
@@ -839,6 +832,8 @@ let set_same_loc st n0 =
 
 (* Set the values of write events *)
 
+  (* Split the cycle into segments, each contains
+     events for the same location *)
   let split_by_loc n =
     let rec do_rec m =
       let r =
@@ -1014,8 +1009,8 @@ let set_same_loc st n0 =
 
   let set_all_write_val nss =
     let _,initvals =
-      List.fold_right
-        (fun ns (k,env as r) ->
+      List.fold_left
+        (fun (k,env as r) ns ->
           match ns with
           | [] -> r
           | n::_ ->
@@ -1037,7 +1032,7 @@ let set_same_loc st n0 =
                 k+8,(next_x,Code.value_of_int (k+4))::env
               else
                 k+4,env)
-        nss (0,[]) in
+        (0,[]) nss in
     initvals
 
   let set_write_v n =
@@ -1181,13 +1176,12 @@ let do_set_read_v =
     (CoSt.get_cell final_st).(0),CoSt.get_pte_value final_st
 
 let set_read_v nss =
-  List.fold_right
-    (fun ns k -> match ns with
-    | [] -> k
-    | n::_  ->
-        let vf = do_set_read_v ns in
-        (n.evt.loc,vf)::k)
-    nss []
+  List.filter_map
+    (fun ns -> match ns with
+      | [] -> None
+      | n::_  -> let vf = do_set_read_v ns in
+        Some (n.evt.loc,vf))
+  nss
 
 (* zyva... *)
 
@@ -1240,6 +1234,7 @@ let finish n =
   end ;
   if O.variant Variant_gen.Self then check_fetch n;
   initvals
+(* END of finish *)
 
 
 (* Re-extract edges, with irelevant directions solved *)
@@ -1368,17 +1363,16 @@ let merge_changes n nss =
     let k1,k2 = do_rec n in
     let nss = cons_not_nil k1 k2 in
     let nss = merge_changes n nss in
-    let rec num_rec k = function
-      | [] -> ()
-      | ns::nss ->
-          List.iter
-            (fun n ->
-              if n.store != nil then begin
-                n.store.evt <-  { n.store.evt with proc = k; }
-              end ;
-              n.evt <- { n.evt with proc = k; })
-            ns ;
-          num_rec (k+1) nss in
+    let num_rec k =
+      List.iteri (fun index ns ->
+        List.iter
+          (fun n ->
+            if n.store != nil then begin
+                n.store.evt <-  { n.store.evt with proc = index + k; }
+            end ;
+            n.evt <- { n.evt with proc = index + k; })
+          ns
+      ) in
     num_rec 0 nss ;
     if
       not O.allow_back &&
@@ -1502,6 +1496,7 @@ let rec group_rec x ns = function
                     (List.map str_node ns)) ;
              (loc,ws)::k
           | _ ->
+              (* Assume there is no consecutive writes to the same location *)
               List.iter
                 (fun ns -> eprintf "[%a]\n" debug_nodes ns)
                 ws ;
