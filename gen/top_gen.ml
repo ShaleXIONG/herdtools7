@@ -204,6 +204,7 @@ let get_fence n =
   | n::ns ->
       if O.verbose > 1 then eprintf "COMPILE PROC: <%s>\n" (C.str_node n);
       begin match  n.C.edge.E.edge with
+      (* There are following fences *)
       | E.Node _ ->
           let fs,ns =  collect_inserts ns in
           compile_proc
@@ -214,6 +215,7 @@ let get_fence n =
                    in cs@is)
                    fs is))
             chk loc_writes st p ro_prev init ns
+      (* A single fence *)
       | E.Insert f ->
           let ro_prev,init,cs,st, n1 = match ro_prev with
           | No  -> let init, cs, st = Comp.emit_fence st p init n f in
@@ -410,6 +412,7 @@ let max_set = IntSet.max_elt
               i,c::cs,f@fs
         with NoObserver -> build_observers p i x vss
 
+  (* `env_wide` is a lookup table for the widths of locations and `atoms` is a set of all atom *)
   let check_writes env_wide atoms =
 
     let call_build_observers p i x vs =
@@ -433,28 +436,28 @@ let max_set = IntSet.max_elt
         F.cons_int (A.Loc x) v.(0) fs
       else fs in
 
+    (* add the value `v` of `loc` into the accumulator `k` *)
     let add_look_loc loc v k =
       if (not (StringSet.mem loc atoms) && O.optcond) then k
       else cons_one loc v k in
 
-    (* - `p`, process number, 
-       - `i`. initial value, 
+    (* - `p`, process number,
+       - `i`. initial value,
        - `xvs`, type `U.cos`, the final values of write events for all locations *)
     let check p i xvs =
       let open Config in
-      function
-      | [] -> i,[],[]
-      | (x,vs)::xvs ->
-         let i,c,f = match O.cond with
-           | Observe ->
-              let vs = List.flatten vs in
-              begin match vs with
-              | [] -> i,[],[]
-              | _::_ ->
-                  let v,_ = Misc.last vs in
-                  i,[],cons_one x v []
-              end
+      let _p,i,cs,fs = List.fold_left (fun (p, i, cs, fs) (x, vs) ->
+        let i,c,f = match O.cond with
+          | Observe ->
+            let vs = List.flatten vs in
+            begin match vs with
+            | [] -> i,[],[]
+            | _::_ ->
+                let v,_ = Misc.last vs in
+                i,[],cons_one x v []
+            end
           | Unicond -> assert false
+          (* common branch *)
           | Cycle -> begin
             match vs with
             | [] -> i,[],[]
@@ -675,6 +678,7 @@ let max_set = IntSet.max_elt
     let cos0 = C.coherence n in
     let lsts = U.last_map cos0 in
     let cos = U.compute_cos cos0 in
+    (* the post condition for checking PTE value *)
     let last_ptes = if do_kvm then C.last_ptes n else [] in
     if O.verbose > 1 then
       Printf.eprintf "Last_Ptes: %s\n"
@@ -722,6 +726,7 @@ let max_set = IntSet.max_elt
                    (A.pp_location loc)
                    (TypBase.pp t1) (TypBase.pp t2))
           env_p env in
+    (* end of `do_rec` *)
     let i,obsc,f =
       match O.cond with
       | Unicond -> [],[],[]
@@ -733,7 +738,7 @@ let max_set = IntSet.max_elt
     | [],_ -> Warn.fatal "No proc"
 (*    | [_],Cycle -> Warn.fatal "One proc" *)
     | _,_ ->
-        let i,c,(m,f),ios,env =
+        let i,c,(m,final_value),ios,env =
           if
             let len =  List.length splitted in
             O.nprocs <= 0 ||
@@ -742,7 +747,7 @@ let max_set = IntSet.max_elt
             let ess = List.map (List.map (fun n -> n.C.edge)) splitted in
             if ok ess then
               (* - `i` is the initial value.
-                 - `cs` pseudo code list 
+                 - `cs` pseudo code list
                  - `m` location to its last affect events?
                  - `fs` final state
                  - `ios`
@@ -765,7 +770,7 @@ let max_set = IntSet.max_elt
               A.LocMap.add aloc (Array (ty,sz)) k)
           env_wide env in
         let env =
-          let ptes = A.LocSet.of_list (F.extract_ptes f) in
+          let ptes = A.LocSet.of_list (F.extract_ptes final_value) in
           List.fold_left
             (fun m (loc,_) ->
               try
@@ -775,7 +780,7 @@ let max_set = IntSet.max_elt
                 let t =
                   if A.LocSet.mem loc ptes then TypBase.pteval_t else O.typ in
                 A.LocMap.add loc (Typ t) m)
-            env f in
+            env final_value in
         let env =
           let globals = C.get_globals ~init:initvals n in
           let typ =
@@ -793,9 +798,9 @@ let max_set = IntSet.max_elt
         let flts =
           (* `get_locs` filter the interesting faults from a node list `ns`.
              The behaviour based on different fault-related flags. *)
-          let get_faults ns = 
+          let get_faults ns =
           (* TODO: the `if-else` pattern on flags is not a good idea as it may short circuit *)
-            if O.variant Variant_gen.NoFault then 
+            if O.variant Variant_gen.NoFault then
               FaultSet.empty
             else if do_memtag then
               let tagchange =
@@ -806,14 +811,14 @@ let max_set = IntSet.max_elt
                     ( fun n -> let evt = n.C.evt in
                         match evt.C.dir,evt.C.loc,evt.C.bank with
                         | Some W,Data x,Tag -> Some x
-                        | _ -> None 
-                    ) ns ) 
+                        | _ -> None
+                    ) ns )
                 |> List.flatten
                 |> StringSet.of_list in
               ns
               |> List.filter_map
                 (fun n -> match n.C.evt.C.loc,n.C.evt.C.bank with
-                | Data x,Ord when StringSet.mem x tagchange 
+                | Data x,Ord when StringSet.mem x tagchange
                     -> Some (None, None, (* no instruction label *) x)
                 | _ -> None)
               |> FaultSet.of_list
@@ -824,7 +829,7 @@ let max_set = IntSet.max_elt
                     match n.C.prev.C.edge.edge,evt.C.loc,evt.C.bank with
                 | Dp (dp,_,_),Data x,CapaTag when A.is_addr dp
                           -> Some (None, None, (* no instruction label *) x)
-                | Dp (dp,_,_),Data x,CapaSeal when A.is_addr dp 
+                | Dp (dp,_,_),Data x,CapaSeal when A.is_addr dp
                           -> Some (None, None, (* no instruction label *) x)
                 | _ -> None)
               |> FaultSet.of_list
@@ -839,7 +844,7 @@ let max_set = IntSet.max_elt
             else FaultSet.empty in (* no fault-related flag *)
           (* END of get_faults *)
           (* Extract faults from proc `i` and its node list `ns` *)
-          List.mapi (fun i ns -> i,get_faults ns) splitted 
+          List.mapi (fun i ns -> i,get_faults ns) splitted
           |> List.filter (fun (_,xs) -> not (FaultSet.is_empty xs)) in
         (* Add the all the pair in `last_ptes` into the post-condition `final_env` *)
         let final_value =
