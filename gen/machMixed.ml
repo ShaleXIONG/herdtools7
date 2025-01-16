@@ -21,6 +21,7 @@ end
 
 open MachSize
 open Endian
+open Code
 type offset = int
 type t = sz * offset
 
@@ -90,6 +91,8 @@ module Vals(C:ValsConfig) = struct
         no
 
   let overwrite_value v sz o w  =
+    let v = Code.value_to_int v in 
+    let w = Code.value_to_int w in 
     if sz = C.naturalsize () then w
     else
       let o = correct_offset sz o in
@@ -100,6 +103,7 @@ module Vals(C:ValsConfig) = struct
       (v land mask) lor wshifted
 
   let extract_value v sz o =
+    let v = Code.value_to_int v in 
     let sz_bits =  MachSize.nbits sz in
     let o = correct_offset sz o in
     let nshift =  o * 8 in

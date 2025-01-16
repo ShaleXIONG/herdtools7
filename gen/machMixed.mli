@@ -46,9 +46,9 @@ module Vals :
   functor(C:ValsConfig) ->
   sig
     val overwrite_value :
-      int (* old *) -> MachSize.sz -> offset -> int (* write *) -> int
+      Code.v (* old *) -> MachSize.sz -> offset -> Code.v (* write *) -> Code.v
 
-    val extract_value : int -> MachSize.sz -> offset -> int
+    val extract_value : Code.v -> MachSize.sz -> offset -> Code.v
 
   end
 
