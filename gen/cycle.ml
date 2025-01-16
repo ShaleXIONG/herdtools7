@@ -213,7 +213,7 @@ module Make (O:Config) (E:Edge.S) :
 
   let debug_vector =
     if do_neon || do_sve || do_sme then
-      let pp_one = Code.add_vector O.hexa in
+      let pp_one value = Code.add_vector O.hexa (Code.value_to_int value) in
       fun e ->
       sprintf " (vecreg={%s})"
         (String.concat "," (List.map pp_one e.vecreg))

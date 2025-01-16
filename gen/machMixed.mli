@@ -34,7 +34,7 @@ module Make :
 
     val fold_mixed : (t -> 'a -> 'a) -> 'a -> 'a
 
-    val tr_value : MachSize.sz -> int -> int
+    val tr_value : MachSize.sz -> Code.v -> Code.v
   end
 
 module type ValsConfig = sig
