@@ -43,8 +43,10 @@ module type S = sig
   val evt_null : event
   val make_wsi : int -> Code.loc -> event
 
+  (* TODO change v event *)
   val debug_evt : event -> string
 
+  (* TODO change v event *)
   module OrderedEvent : Set.OrderedType with type t = event
 
   module EventMap : MyMap.S with type key = event
@@ -167,12 +169,12 @@ module Make (O:Config) (E:Edge.S) :
     { loc=Code.loc_none ; ord=0; tag=0;
       ctag=0; cseal=0; dep=0;
       vecreg= [];
-      v=(-1) ; ins=0;dir=None; proc=(-1); atom=None; rmw=false;
+      v=Code.no_value ; ins=0;dir=None; proc=(-1); atom=None; rmw=false;
       cell=[||]; tcell=[||];
       bank=Code.Ord; idx=(-1);
       pte=pte_default; }
 
-  let make_wsi idx loc = { evt_null with dir=Some W ; loc=loc; idx=idx; v=0;}
+  let make_wsi idx loc = { evt_null with dir=Some W ; loc=loc; idx=idx; v=Plain 0;}
 
   module OrderedEvent = struct
     type t = event

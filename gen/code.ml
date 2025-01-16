@@ -57,9 +57,15 @@ let ok = Data ok_str
 let myok p n = Data (Printf.sprintf "ok%i%i" p n)
 let myok_proc p = Data (Printf.sprintf "ok%i" p)
 
-type v = int
+type v = NoValue | Plain of int
+let value_to_int = function
+    | NoValue -> -1
+    | Plain v -> v
+let no_value = NoValue
+let value_of_int v = Plain v
 
-let pp_v ?(hexa=false) =
+let pp_v ?(hexa=false) v =
+  value_to_int v |>
   Printf.sprintf
     (if hexa then "0x%x" else "%d")
 
@@ -194,6 +200,6 @@ let add_capability s t = Printf.sprintf "0xffffc0000:%s:%i" s (if t = 0 then 1 e
 
 let add_vector hexa v =
   let open Printf in
-  let pp = pp_v ~hexa:hexa in
+  let pp value = pp_v ~hexa:hexa (value_of_int value) in
   sprintf "{%s}"
-    (String.concat "," (List.map pp  v))
+    (String.concat "," (List.map pp v))
