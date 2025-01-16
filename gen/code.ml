@@ -15,6 +15,7 @@
 (****************************************************************************)
 
 (* Event components *)
+(* TODO introduce a monad operation? *)
 type loc = Data of string | Code of Label.t
 
 let as_data = function
