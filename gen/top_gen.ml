@@ -156,7 +156,6 @@ module U = TopUtils.Make(O)(Comp)
 
 (* Encodes load of first non-initial value in chain,
    can poll on value in place of checking it *)
-
   let emit_access ro_prev st p init n =
     let init,ip,st  = match O.overload,n.C.evt.C.loc with
     | Some ov,Data loc  when insert_overload n ->
@@ -168,11 +167,9 @@ module U = TopUtils.Make(O)(Comp)
           let r,init,i,st =
             Comp.emit_load_one st p init loc in
           Some r,init,i,st
-        else
-          call_emit_access st p init n
+        else call_emit_access st p init n
     | No,Code _ -> call_emit_access st p init n
-    | Yes (dp,r1,n1),_
-      -> call_emit_access_dep st p init n dp r1 n1 in
+    | Yes (dp,r1,n1),_ -> call_emit_access_dep st p init n dp r1 n1 in
     o,init,ip@i,st
 
 let edge_to_prev_load o n = match o with
@@ -199,7 +196,10 @@ let get_fence n =
           f::fs,ns
       | _ -> [],all
 
-  let rec compile_proc pref chk loc_writes st p ro_prev init ns = match ns with
+  (* `ro_prev` if there is a previous load, `st` is the machine state
+     The callee from compile_proc
+                  Misc.identity false loc_writes A.st0 proc No      i    n *)
+  let rec compile_proc pref     chk   loc_writes st    p    ro_prev init ns = match ns with
   | [] -> init,pref [],(C.EventMap.empty,[]),st
   | n::ns ->
       if O.verbose > 1 then eprintf "COMPILE PROC: <%s>\n" (C.str_node n);
@@ -226,12 +226,14 @@ let get_fence n =
             compile_proc pref chk loc_writes st p (edge_to_prev_load ro_prev n1) init ns in
           init,cs@is,finals,st
       | _ ->
+          (* TODO what is the meaning of all the returns? *)
           let o,init,i,st = emit_access ro_prev st p init n in
           let nchk,add_check =
             match O.docheck,n.C.evt.C.dir,o,ns with
             | true,Some R,Some r,_::_ ->
                 true,Comp.check_load p r n.C.evt
             | _ -> chk,no_check_load in
+          (* TODO what is the meaning of all the returns? *)
           let init,mk_c,st = add_check init st in
           let init,is,finals,st =
             compile_proc pref nchk loc_writes
@@ -250,9 +252,7 @@ let get_fence n =
                 StringSet.mem loc loc_writes  && not (U.do_poll n) in
               if call_add then
                 F.add_final (A.get_friends st) p o n finals
-              else begin
-                finals
-              end
+              else finals
           | Code _ ->
               begin match o with
               | None   -> finals (* Code write *)
@@ -263,6 +263,7 @@ let get_fence n =
               end),
           st
       end
+  (* END of compile_proc *)
 
 (*************)
 (* Observers *)
@@ -436,63 +437,69 @@ let max_set = IntSet.max_elt
       if (not (StringSet.mem loc atoms) && O.optcond) then k
       else cons_one loc v k in
 
-    let rec check_rec p i =
-
-      let open Config in
-      function
-      | [] -> i,[],[]
-      | (x,vs)::xvs ->
-         let i,c,f = match O.cond with
-           | Observe ->
-              let vs = List.flatten vs in
-              begin match vs with
-              | [] -> i,[],[]
-              | _::_ ->
-                  let v,_ = Misc.last vs in
-                  i,[],cons_one x v []
-              end
-          | Unicond -> assert false
-          | Cycle -> begin
-              match vs with
-              | [] -> i,[],[]
-              | [[(v,_)]] -> i,[],add_look_loc x v []
-              | [[_;(v,_)]] ->
-                  begin match O.do_observers with
-                  | Local -> i,[],add_look_loc x v []
-                  | Avoid|Accept|Three|Four|Infinity
-                    -> i,[],cons_one x v []
-                  | Enforce ->
-                      let i,c,f = call_build_observers p i x vs in
-                      i,c,add_look_loc x v f
-                  end
-              | _ ->
-                  let vs_flat = List.flatten vs in
-                  let v,_ = Misc.last vs_flat in
-                  begin match O.do_observers with
-                  | Local -> i,[],add_look_loc x v []
-                  | Three ->
-                      begin match vs_flat with
-                      | _x1::_x2::_x3::_x4::_ ->
-                          Warn.fatal "More than three writes"
-                      | _ -> i,[],cons_one x v []
-                      end
-                  |Four ->
-                      begin match vs_flat with
-                      | _x1::_x2::_x3::_x4::_x5::_ ->
-                          Warn.fatal "More than four writes"
-                      | _ -> i,[],cons_one x v []
-                      end
-                  | Infinity ->
-                      i,[],cons_one x v []
-                  | _ ->
-                      let i,c,f = call_build_observers p i x vs in
-                      i,c,add_look_loc x v f
-                  end
-          end in
-          let i,cs,fs =
-            check_rec (p+List.length c) i xvs in
-          i,c@cs,f@fs in
-    check_rec
+    (* - `p`, process number, 
+       - `i`. initial value, 
+       - input, type `U.cos`, the final values of write events for all locations *)
+       let rec check_rec p i =
+       let open Config in
+       function
+       | [] -> i,[],[]
+       | (x,vs)::xvs ->
+          let i,c,f = match O.cond with
+            | Observe ->
+               let vs = List.flatten vs in
+               begin match vs with
+               | [] -> i,[],[]
+               | _::_ ->
+                   let v,_ = Misc.last vs in
+                   i,[],cons_one x v []
+               end
+           | Unicond -> assert false
+           | Cycle -> begin
+               match vs with
+               | [] -> i,[],[]
+               | [[(v,_)]] -> i,[],add_look_loc x v []
+               | [[_;(v,_)]] ->
+                   begin match O.do_observers with
+                   | Local -> i,[],add_look_loc x v []
+                   | Avoid|Accept|Three|Four|Infinity
+                     -> i,[],cons_one x v []
+                   | Enforce ->
+                       let i,c,f = call_build_observers p i x vs in
+                       i,c,add_look_loc x v f
+                   end
+               | _ ->
+                   let vs_flat = List.flatten vs in
+                   let v,_ = Misc.last vs_flat in
+                   begin match O.do_observers with
+                   | Local -> i,[],add_look_loc x v []
+                   | Three ->
+                       begin match vs_flat with
+                       | _x1::_x2::_x3::_x4::_ ->
+                           Warn.fatal "More than three writes"
+                       | _ -> i,[],cons_one x v []
+                       end
+                   |Four ->
+                       begin match vs_flat with
+                       | _x1::_x2::_x3::_x4::_x5::_ ->
+                           Warn.fatal "More than four writes"
+                       | _ -> i,[],cons_one x v []
+                       end
+                   | Infinity ->
+                       i,[],cons_one x v []
+                   | _ ->
+                       let i,c,f = call_build_observers p i x vs in
+                       i,c,add_look_loc x v f
+                   end
+           end in
+          (* Update the procedure number, carry over the new `i`,
+            and accumulating the new results of `c` and `f` *)
+           let i,cs,fs =
+             check_rec (p+List.length c) i xvs in
+           i,c@cs,f@fs in
+     (* END of check_rec definition *)
+     check_rec
+(* END of check_writes *)
 
   let compile_store st p init n =
     let ro,init,c,st = call_emit_access st p init n in
@@ -677,7 +684,7 @@ let max_set = IntSet.max_elt
     let no_local_ptes = StringSet.of_list (List.map fst last_ptes) in
     if O.verbose > 1 then U.pp_coherence cos0 ;
     let loc_writes = U.comp_loc_writes n in
-
+    (* `do_rec` compile individual instructions *)
     let rec do_rec p i = function
       | [] -> List.rev i,[],(C.EventMap.empty,[]),[],A.LocMap.empty
       | n::ns ->
@@ -720,6 +727,7 @@ let max_set = IntSet.max_elt
       | Cycle|Observe ->
           let atoms = U.comp_atoms n in
           check_writes env_wide atoms 0  [] cos in
+    let open FaultSet in
     match splitted,O.cond with
     | [],_ -> Warn.fatal "No proc"
 (*    | [_],Cycle -> Warn.fatal "One proc" *)
@@ -732,6 +740,13 @@ let max_set = IntSet.max_elt
           then
             let ess = List.map (List.map (fun n -> n.C.edge)) splitted in
             if ok ess then
+              (* - `i` is the initial value.
+                 - `cs` pseudo code list 
+                 - `m` location to its last affect events?
+                 - `fs` final state
+                 - `ios`
+                 - `env`
+              *)
               let i,cs,(m,fs),ios,env =
                 do_rec (List.length obsc) i splitted in
               i,obsc@cs,(m,f@fs),ios,env
@@ -773,58 +788,62 @@ let max_set = IntSet.max_elt
               if A.LocMap.mem loc m then m
               else A.LocMap.add loc typ m)
             env globals in
+        (* Collect all the faults information *)
         let flts =
-          if O.variant Variant_gen.NoFault then []
-          else if do_memtag then
-            let tagchange =
-              let ts =
-                List.fold_left
-                  (fun k ns ->
-                    List.fold_left
-                      (fun k n -> match n.C.evt.C.dir,n.C.evt.C.loc,n.C.evt.C.bank with
-                      | Some W,Data x,Tag -> x::k
-                      | _ -> k)
-                      k ns) []
-                  splitted in
-              StringSet.of_list ts in
-            let get_locs ns =
-              let xs =
-                List.fold_left
-                  (fun k n -> match n.C.evt.C.loc,n.C.evt.C.bank with
-                  | Data x,Ord when StringSet.mem x tagchange -> x::k
-                  | _ -> k)
-                  [] ns in
-              StringSet.of_list xs in
-            let flts = List.mapi (fun i ns -> i,get_locs ns) splitted in
-            List.filter (fun (_,xs) -> not (StringSet.is_empty xs)) flts
-          else if do_morello then
-            let tagchange ns =
-              let ts =
-                List.fold_left
-                  (fun k n -> match n.C.prev.C.edge.edge,n.C.evt.C.loc,n.C.evt.C.bank with
-                  | Dp (dp,_,_),Data x,CapaTag when A.is_addr dp -> x::k
-                  | Dp (dp,_,_),Data x,CapaSeal when A.is_addr dp -> x::k
-                  | _ -> k)
-                  [] ns in
-              StringSet.of_list ts in
-            let flts = List.mapi (fun i ns -> i,tagchange ns) splitted in
-            List.filter (fun (_,xs) -> not (StringSet.is_empty xs)) flts
-          else if do_kvm then
-            let get_locs ns =
-              let xs =
-                List.fold_left
-                  (fun k n ->
-                    let e = n.C.evt in
-                    match e.C.loc,e.C.bank with
-                    | Data x,Ord -> x::k
-                    | _ -> k)
-                  [] ns in
-              StringSet.of_list xs in
-            let flts = List.mapi (fun i ns -> i,get_locs ns) splitted in
-            List.filter (fun (_,xs) -> not (StringSet.is_empty xs)) flts
-          else [] in
+          (* `get_locs` filter the interesting faults from a node list `ns`.
+             The behaviour based on different fault-related flags. *)
+          let get_faults ns = 
+          (* TODO: the `if-else` pattern on flags is not a good idea as it may short circuit *)
+            if O.variant Variant_gen.NoFault then 
+              FaultSet.empty
+            else if do_memtag then
+              let tagchange =
+                (* Filter all the write event when tag changes in `splitted`. *)
+                splitted
+                |> List.map
+                  ( fun ns -> List.filter_map
+                    ( fun n -> let evt = n.C.evt in
+                        match evt.C.dir,evt.C.loc,evt.C.bank with
+                        | Some W,Data x,Tag -> Some x
+                        | _ -> None 
+                    ) ns ) 
+                |> List.flatten
+                |> StringSet.of_list in
+              ns
+              |> List.filter_map
+                (fun n -> match n.C.evt.C.loc,n.C.evt.C.bank with
+                | Data x,Ord when StringSet.mem x tagchange 
+                    -> Some (None, None, (* no instruction label *) x)
+                | _ -> None)
+              |> FaultSet.of_list
+            else if do_morello then
+              ns
+              |> List.filter_map
+                (fun n -> let evt = n.C.evt in
+                    match n.C.prev.C.edge.edge,evt.C.loc,evt.C.bank with
+                | Dp (dp,_,_),Data x,CapaTag when A.is_addr dp
+                          -> Some (None, None, (* no instruction label *) x)
+                | Dp (dp,_,_),Data x,CapaSeal when A.is_addr dp 
+                          -> Some (None, None, (* no instruction label *) x)
+                | _ -> None)
+              |> FaultSet.of_list
+            else if do_kvm then
+              ns
+              |> List.filter_map
+                  (fun n -> let e = n.C.evt in
+                    match e.C.check_fault,e.C.loc,e.C.bank with
+                    | Some (label,boolean),Data x,Ord -> Some (Some label, Some boolean, x)
+                    | _ -> None)
+              |> FaultSet.of_list
+            else FaultSet.empty in (* no fault-related flag *)
+          (* END of get_faults *)
+          (* Extract faults from proc `i` and its node list `ns` *)
+          List.mapi (fun i ns -> i,get_faults ns) splitted 
+          |> List.filter (fun (_,xs) -> not (FaultSet.is_empty xs)) in
+        (* Add the all the pair in `last_ptes` into the post-condition `final_env` *)
         let f =
-          List.fold_left (fun f (x,p) -> F.cons_pteval (A.Loc x) p f) f last_ptes in
+            List.fold_left (fun f (x,p) -> F.cons_pteval (A.Loc x) p f) f last_ptes in
+        (* `fc` converts faults `flts` and final values of registers `final_env` to final *)
         let fc =
           match O.cond with
           | Unicond ->
@@ -839,6 +858,7 @@ let max_set = IntSet.max_elt
         (i,c,fc flts,env),
         (U.compile_prefetch_ios (List.length obsc) ios,
          U.compile_coms splitted)
+  (* END of compile_cycle *)
 
 
 (********)
