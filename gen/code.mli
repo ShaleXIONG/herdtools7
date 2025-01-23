@@ -38,6 +38,7 @@ val pp_v : ?hexa:bool -> v -> string
 val no_value : v
 val value_to_int : v -> int
 val value_of_int : int -> v
+val value_compare : v -> v -> int
 
 type proc = Proc.t
 val pp_proc : proc -> string

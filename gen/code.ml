@@ -64,6 +64,12 @@ let value_to_int = function
     | Plain v -> v
 let no_value = NoValue
 let value_of_int v = Plain v
+let value_compare lhs rhs = 
+    match lhs, rhs with
+    | NoValue, NoValue -> 0
+    | NoValue, Plain _ -> -1
+    | Plain _, NoValue -> 1
+    | Plain lhs, Plain rhs -> Misc.int_compare lhs rhs
 
 let pp_v ?(hexa=false) v =
   value_to_int v |>
