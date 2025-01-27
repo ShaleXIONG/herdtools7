@@ -26,19 +26,26 @@ module type S = sig
 
   (* TODO can be parametric by dir *)
   type event =
-      { loc : loc ; ord : int; tag : int ;
+      { loc : loc ; ord : int; 
+        (* TODO morello related value, fold into value *)
+        tag : int ;
         ctag : int; cseal : int; dep : int ;
         v   : v ; (* Value read or written *)
+        (* TODO fold into value *)
         vecreg: v list list ; (* Alternative for SIMD *)
+        (* TODO instruction fetch related value, fold into value *)
         ins : int ;
         dir : dir option ;
         proc : Code.proc ;
         atom : atom option ;
+        (* TODO why not put into dir ? *)
         rmw : bool ;
+        (* TODO, cell and tcell fold together *)
         cell : v array ; (* Content of memory, after event *)
         tcell : v array ; (* value of tag memory after event *)
         bank : SIMD.atom Code.bank ;
         idx : int ;
+        (* TODO PTE fold into value *)
         pte : PteVal.t ; }
 
   val evt_null : event
