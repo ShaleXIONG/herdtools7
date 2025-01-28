@@ -159,29 +159,21 @@ module U = TopUtils.Make(O)(Comp)
 (* Encodes load of first non-initial value in chain,
    can poll on value in place of checking it *)
   let emit_access ro_prev st p init n =
-    eprintf "callling emit_access\n";
     let init,ip,st  = match O.overload,n.C.evt.C.loc with
     | Some ov,Data loc  when insert_overload n ->
-        eprintf "\tcallling emit_overload\n";
         emit_overload st p init ov loc
     | _ -> init,[],st in
     let o,init,i,st = match ro_prev,n.C.evt.C.loc with
     | No,Data loc ->
         if U.do_poll n then
           let r,init,i,st =
-            eprintf "\tcallling emit_load_one\n";
             Comp.emit_load_one st p init loc in
           Some r,init,i,st
         else begin
-          eprintf "\tcallling call_emit_access\n";
           call_emit_access st p init n
         end
-    | No,Code _ -> 
-            eprintf "\tcallling call_emit_access #2\n";
-            call_emit_access st p init n
-    | Yes (dp,r1,n1),_ -> 
-            eprintf "\tcallling call_emit_access_dep\n";
-            call_emit_access_dep st p init n dp r1 n1 in
+    | No,Code _ -> call_emit_access st p init n
+    | Yes (dp,r1,n1),_ -> call_emit_access_dep st p init n dp r1 n1 in
     o,init,ip@i,st
 
 let edge_to_prev_load o n = match o with
@@ -689,7 +681,6 @@ let max_set = IntSet.max_elt
     let no_local_ptes = StringSet.of_list (List.map fst last_ptes) in
     if O.verbose > 1 then U.pp_coherence cos0 ;
     let loc_writes = U.comp_loc_writes n in
-
     let rec do_rec p i = function
       | [] -> List.rev i,[],(C.EventMap.empty,[]),[],A.LocMap.empty
       | n::ns ->
@@ -732,6 +723,7 @@ let max_set = IntSet.max_elt
       | Cycle|Observe ->
           let atoms = U.comp_atoms n in
           check_writes env_wide atoms 0  [] cos in
+    let open FaultSet in
     match splitted,O.cond with
     | [],_ -> Warn.fatal "No proc"
 (*    | [_],Cycle -> Warn.fatal "One proc" *)
@@ -785,6 +777,7 @@ let max_set = IntSet.max_elt
               if A.LocMap.mem loc m then m
               else A.LocMap.add loc typ m)
             env globals in
+        (* Collect all the faults information *)
         let flts =
           if O.variant Variant_gen.NoFault then []
           else if do_memtag then
