@@ -779,57 +779,63 @@ let max_set = IntSet.max_elt
             env globals in
         (* Collect all the faults information *)
         let flts =
-          if O.variant Variant_gen.NoFault then []
-          else if do_memtag then
-            let tagchange =
-              let ts =
-                List.fold_left
-                  (fun k ns ->
-                    List.fold_left
-                      (fun k n -> match n.C.evt.C.dir,n.C.evt.C.loc,n.C.evt.C.bank with
-                      | Some W,Data x,Tag -> x::k
-                      | _ -> k)
-                      k ns) []
-                  splitted in
-              StringSet.of_list ts in
-            let get_locs ns =
-              let xs =
-                List.fold_left
-                  (fun k n -> match n.C.evt.C.loc,n.C.evt.C.bank with
-                  | Data x,Ord when StringSet.mem x tagchange -> x::k
-                  | _ -> k)
-                  [] ns in
-              StringSet.of_list xs in
-            let flts = List.mapi (fun i ns -> i,get_locs ns) splitted in
-            List.filter (fun (_,xs) -> not (StringSet.is_empty xs)) flts
-          else if do_morello then
-            let tagchange ns =
-              let ts =
-                List.fold_left
-                  (fun k n -> match n.C.prev.C.edge.edge,n.C.evt.C.loc,n.C.evt.C.bank with
-                  | Dp (dp,_,_),Data x,CapaTag when A.is_addr dp -> x::k
-                  | Dp (dp,_,_),Data x,CapaSeal when A.is_addr dp -> x::k
-                  | _ -> k)
-                  [] ns in
-              StringSet.of_list ts in
-            let flts = List.mapi (fun i ns -> i,tagchange ns) splitted in
-            List.filter (fun (_,xs) -> not (StringSet.is_empty xs)) flts
-          else if do_kvm then
-            let get_locs ns =
-              let xs =
-                List.fold_left
-                  (fun k n ->
-                    let e = n.C.evt in
-                    match e.C.loc,e.C.bank with
-                    | Data x,Ord -> x::k
-                    | _ -> k)
-                  [] ns in
-              StringSet.of_list xs in
-            let flts = List.mapi (fun i ns -> i,get_locs ns) splitted in
-            List.filter (fun (_,xs) -> not (StringSet.is_empty xs)) flts
-          else [] in
-        let f =
-          List.fold_left (fun f (x,p) -> F.cons_pteval (A.Loc x) p f) f last_ptes in
+          (* `get_locs` filter the interesting faults from a node list `ns`.
+             The behaviour based on different fault-related flags. *)
+          let get_faults ns = 
+          (* TODO: the `if-else` pattern on flags is not a good idea as it may short circuit *)
+            if O.variant Variant_gen.NoFault then 
+              FaultSet.empty
+            else if do_memtag then
+              let tagchange =
+                (* Filter all the write event when tag changes in `splitted`. *)
+                splitted
+                |> List.map
+                  ( fun ns -> List.filter_map
+                    ( fun n -> let evt = n.C.evt in
+                        match evt.C.dir,evt.C.loc,evt.C.bank with
+                        | Some W,Data x,Tag -> Some x
+                        | _ -> None 
+                    ) ns ) 
+                |> List.flatten
+                |> StringSet.of_list in
+              ns
+              |> List.filter_map
+                (fun n -> match n.C.evt.C.loc,n.C.evt.C.bank with
+                | Data x,Ord when StringSet.mem x tagchange 
+                    -> Some (None, None, (* no instruction label *) x)
+                | _ -> None)
+              |> FaultSet.of_list
+            else if do_morello then
+              ns
+              |> List.filter_map
+                (fun n -> let evt = n.C.evt in
+                    match n.C.prev.C.edge.edge,evt.C.loc,evt.C.bank with
+                | Dp (dp,_,_),Data x,CapaTag when A.is_addr dp
+                          -> Some (None, None, (* no instruction label *) x)
+                | Dp (dp,_,_),Data x,CapaSeal when A.is_addr dp 
+                          -> Some (None, None, (* no instruction label *) x)
+                | _ -> None)
+              |> FaultSet.of_list
+            (* TODO: Add more process to extract (1) if an read or write access will fault and (2) the code location.
+               NOTE: It should calculated against the PTE value. *)
+            else if do_kvm then
+              ns
+              |> List.filter_map
+                  (fun n -> let e = n.C.evt in
+                    match e.C.check_fault,e.C.loc,e.C.bank with
+                    | Some (label,boolean),Data x,Ord -> Some (Some label, Some boolean, x)
+                    | _ -> None)
+              |> FaultSet.of_list
+            else (* no fault-related flag *)
+                FaultSet.empty in
+          (* END of get_faults *)
+          (* Extract faults from proc `i` and its node list `ns` *)
+          List.mapi (fun i ns -> i,get_faults ns) splitted 
+          |> List.filter (fun (_,xs) -> not (FaultSet.is_empty xs)) in
+        (* Add the all the pair in `last_ptes` into the post-condition `final_env` *)
+        let final_value =
+            List.fold_left (fun f (x,p) -> F.cons_pteval (A.Loc x) p f) final_value last_ptes in
+        (* `fc` converts faults `flts` and final values of registers `final_env` to final *)
         let fc =
           match O.cond with
           | Unicond ->
@@ -844,6 +850,7 @@ let max_set = IntSet.max_elt
         (i,c,fc flts,env),
         (U.compile_prefetch_ios (List.length obsc) ios,
          U.compile_coms splitted)
+  (* END of compile_cycle *)
 
 
 (********)
