@@ -14,6 +14,9 @@
 (* "http://www.cecill.info". We also give a copy in LICENSE.txt.            *)
 (****************************************************************************)
 
+open FaultSet
+open Printf
+
 module type Config = sig
   val verbose : int
   val cond : Config.cond
@@ -22,7 +25,6 @@ module type Config = sig
   val variant : Variant_gen.t -> bool
 end
 
-open FaultSet
 module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
   sig
 
@@ -78,7 +80,8 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
     val observe : fenv -> faults -> final
     val run : C.C.event list list -> C.A.location C.C.EventMap.t -> faults -> final
 
-    val dump_final : out_channel ->  final -> unit
+    val dump_final : out_channel -> final -> unit
+    val dump_state : fenv -> string
 
 (* Complement init environemt *)
     val extract_ptes : fenv -> C.A.location list
@@ -118,8 +121,10 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
     type fenv = (C.A.location * vset) list
     type eventmap = C.A.location C.C.EventMap.t
 
-    let show_in_cond =
-      if O.optcond then
+    (* If the effect of a node `n` should be checked in final condition *)
+    (* TODO: rule out if it is pte event *)
+    let show_in_cond n =
+        if O.optcond then
         let valid_edge m =
           let e = m.C.C.edge in
           let open C.E in
@@ -134,11 +139,19 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
               end
           |Insert _|Store|Node _ -> false
           | Id -> assert false in
-        (fun n ->
-          let p = C.C.find_non_pseudo_prev n.C.C.prev in
-          valid_edge p || valid_edge n)
-      else
-        (fun _ -> true)
+        let is_pte_event m =
+            let open C.E in
+            match m.C.C.evt.C.C.bank with
+            | Code.Pte -> true
+            | _ -> false in
+        let check_value m = Option.value m.C.C.evt.C.C.check_value ~default:false in
+        let p = C.C.find_non_pseudo_prev n.C.C.prev in
+          (* TODO: Why `p`?
+             - first, as the find_non_pseudo_prev already rule out
+             node of `Store|Insert _ |Id|Node _`. 
+             - why I need to check the previous node ? *)
+          not (is_pte_event n) && (check_value n) && (valid_edge p || valid_edge n)
+        else true
 
     let intset2vset is =
       IntSet.fold (fun v k -> VSet.add (I v) k) is VSet.empty
@@ -166,11 +179,17 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
 
     let prev_value = fun v -> v-1
 
+    (* Add a final change into `final` based on the node `n` *)
+    (* TODO what is `get_friends` and `o` ? *)
     let add_final get_friends p o n finals = match o with
     | Some r ->
         let m,fs = finals in
         let evt = n.C.C.evt in
         let bank = evt.C.C.bank in
+        (* variable `v` holds the observable value from the event `evt`.
+          Note that different event might observe different type of value,
+          e.g. a plain value for plain read event, 
+          but a pte value for a pte read event. *)
         let v = match evt.C.C.dir with
         | Some Code.R ->
             begin match bank with
@@ -194,9 +213,13 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
                 Some (P evt.C.C.pte)
             end
         | Some Code.W ->
+           (* Because written value is assigned incrementally,
+              the value before this write event should be `-1`,
+              as function `prev_value` computes *)
            assert (evt.C.C.bank = Code.Ord || evt.C.C.bank = Code.CapaSeal) ;
            Some (I (prev_value evt.C.C.v))
         | None|Some Code.J -> None in
+        (* *)
         if show_in_cond n then match v with
         | Some v ->
            let add_to_fs r v fs =
@@ -210,9 +233,10 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
                 | _ -> assert false
                 end
              | _ -> [] in
-           let m = C.C.EventMap.add n.C.C.evt (C.A.of_reg p r) m
-           and fs =
+           let m = C.C.EventMap.add n.C.C.evt (C.A.of_reg p r) m in
+           let fs =
              try
+                (* TODO what is this ?? *)
                add_to_fs r v
                  (List.fold_right2 add_to_fs (get_friends r) vs fs)
              with Invalid_argument _ ->
@@ -298,7 +322,7 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
         flts |> List.map
         (fun (p,xs) ->
           FaultSet.map_list
-            (fun (_,_,loc) -> sprintf "fault (%d,%s);" p loc)
+            (fun (_,_,loc) -> sprintf "fault (P%d,%s);" p loc)
         xs) 
         |> List.flatten
 
@@ -311,7 +335,9 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
       match f with
       (* TODO what the fault looks like in Forall condition? *)
       | Exists fs ->
+(*
           dump_locations chan loc_flts;
+*)
           let ppfs = dump_state fs
           and ppflts = dump_flts flts in
           let cc = match ppfs,ppflts with
@@ -322,7 +348,9 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
           if cc <> "" then
             fprintf chan "%sexists %s\n" (if !Config.neg then "~" else "") cc
       | Forall ffs ->
+(*
           dump_locations chan loc_flts;
+*)
           fprintf chan "forall\n" ;
           fprintf chan "%s%s\n" (Run.dump_cond ffs)
             (match dump_flts flts with
