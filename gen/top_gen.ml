@@ -118,7 +118,7 @@ module U = TopUtils.Make(O)(Comp)
     else
       let loc_ov = sprintf "%s%i" loc ov in
       (* TODO is the None correct *)
-      let _,init,i,st = Comp.emit_load st p init loc_ov None in
+      let _,init,i,st = Comp.emit_load st p init loc_ov in
       let init,is,st = emit_overload st p init (ov-1) loc in
       init,i@is,st
 
