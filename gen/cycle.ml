@@ -33,8 +33,6 @@ module type S = sig
         v   : v ; (* Value read or written *)
         (* TODO fold into value *)
         vecreg: v list list ; (* Alternative for SIMD *)
-        (* TODO instruction fetch related value, fold into value *)
-        ins : int ;
         dir : dir option ;
         proc : Code.proc ;
         atom : atom option ;
@@ -160,7 +158,6 @@ module Make (O:Config) (E:Edge.S) :
         ctag : int; cseal : int; dep : int;
         v   : v ;
         vecreg: v list list ;
-        ins : int ;
         dir : dir option ;
         proc : Code.proc ;
         atom : atom option ;
@@ -177,7 +174,7 @@ module Make (O:Config) (E:Edge.S) :
     { loc=Code.loc_none ; ord=0; tag=0;
       ctag=0; cseal=0; dep=0;
       vecreg= [];
-      v=Code.no_value ; ins=0;dir=None; proc=(-1); atom=None; rmw=false;
+      v=Code.no_value; dir=None; proc=(-1); atom=None; rmw=false;
       cell=[||]; tcell=[||];
       bank=Code.Ord; idx=(-1);
       pte=pte_default; }
@@ -855,10 +852,6 @@ let set_same_loc st n0 =
             let cseal = Code.value_to_int (CoSt.get_co st CapaSeal) in
             n.evt <- { n.evt with ord=ord; ctag=ctag; cseal=cseal; }
           end
-        else begin
-          let instr = Code.value_to_int (CoSt.get_co st Instr) in
-          n.evt <- { n.evt with ins=instr}
-        end
 (*
           else if do_neon then (* set both fields, it cannot harm *)
             let ord = get_co st Ord in
@@ -937,8 +930,6 @@ let set_same_loc st n0 =
               | Instr -> Warn.fatal "not letting instr write happen"
               | Ord ->
                   let st = CoSt.next_co st bank in
-                  let v = CoSt.get_co st bank in
-                  n.evt <- { n.evt with ins = Code.value_to_int v;} ;
                   do_set_write_val next_x_ok st pte_val ns
                | _ -> do_set_write_val next_x_ok st pte_val ns
             end
@@ -1066,8 +1057,7 @@ let do_set_read_v =
               | Tag|CapaTag|CapaSeal ->
                  CoSt.set_co st bank (Code.value_to_int n.evt.v)
               | Pte|Ord|Pair|VecReg _| Instr ->
-                if Code.is_data n.evt.loc then st
-                else CoSt.set_co st bank n.evt.ins in
+                if Code.is_data n.evt.loc then st else st in
             do_rec st
               (match bank with
                | Ord|Pair|VecReg _ ->
