@@ -35,9 +35,9 @@ module type S = sig
         ctag : int; cseal : int; dep : int ;
         v   : v ; (* Value read or written *)
         vecreg: v list list ; (* Alternative for SIMD *)
-        (* Pte vaulue *)
+        (* Pte value *)
         pte : PteVal.t ;
-        (* for instruction fecth, label number *)
+        (* for instruction fetch, label number *)
         ins : int ;
         dir : dir option ;
         proc : Code.proc ;
@@ -285,7 +285,6 @@ module Make (O:Config) (E:Edge.S) :
       | [n] -> debug_node chan n
       | n::ns -> fprintf chan "%a,%a" debug_node n iter ns in
     iter chan ns
-
   let debug_cycle chan n =
     let rec do_rec m =
       debug_node chan m ;
@@ -584,13 +583,6 @@ module CoSt = struct
     let lst = fst+E.SIMD.nregs n in
     { st with co_cell=E.SIMD.step n fst st.co_cell;
       map=M.add Ord lst st.map; }
-
-  let pp chan st = 
-      fprintf chan "coherence state:{ map: %s, co_cell[%d]: [%s], pte_cell: %s}"
-      (M.pp_str (fun k v -> sprintf "%s -> %d" (pp_bank k) v) st.map)
-      (Array.length st.co_cell)
-      (Array.fold_left (fun acc v -> sprintf "%s,%d" acc v) "" st.co_cell)
-      (PteVal.pp st.pte_value)
 end
 
 let pte_val_init loc = match loc with
@@ -888,29 +880,37 @@ let set_same_loc st n0 =
     List.fold_left ( fun (next_x_ok, st) n ->
     (* Update the `cell` in `st` if there is a `.store *)
       let st = if n.store == nil then st else set_write_val_ord st n.store in
+      (* Update tag and instruction value in `st` no matter `W`, `R` etc. *)
+      (* TODO: potentially rework the if-elseif-else here as it is confused *)
+      begin if Code.is_data n.evt.loc then
+         begin if do_memtag then
+             let tag = CoSt.get_co st Tag in
+             n.evt <- { n.evt with tag=tag; }
+           else if do_morello then
+             let ord = CoSt.get_co st Ord in
+             let ctag = CoSt.get_co st CapaTag in
+             let cseal = CoSt.get_co st CapaSeal in
+             n.evt <- { n.evt with ord=ord; ctag=ctag; cseal=cseal; }
+           end
+         else begin
+           let instr = CoSt.get_co st Instr in
+           n.evt <- { n.evt with ins=instr}
+         end
+ (*
+           else if do_neon then (* set both fields, it cannot harm *)
+             let ord = get_co st Ord in
+             let v = get_co st VecReg in
+             let vecreg = [|v;v;v;v;|] in
+             n.evt <- { n.evt with ord=ord; vecreg=vecreg; }
+ *)
+      end ;
+      (* END of `if Code.is_data n.evt.loc` *)
       match n.evt.dir with
       | Some W ->
           begin 
           let check_value = Some (CoSt.get_check_value st) in
           match n.evt.loc with
           | Data _ ->
-              begin
-              if do_memtag then
-                let tag = CoSt.get_co st Tag in
-                n.evt <- { n.evt with tag=tag; }
-              else if do_morello then
-                let ord = CoSt.get_co st Ord in
-                let ctag = CoSt.get_co st CapaTag in
-                let cseal = CoSt.get_co st CapaSeal in
-                n.evt <- { n.evt with ord=ord; ctag=ctag; cseal=cseal; }
-(*
-              else if do_neon then (* set both fields, it cannot harm *)
-                let ord = get_co st Ord in
-                let v = get_co st VecReg in
-                let vecreg = [|v;v;v;v;|] in
-                n.evt <- { n.evt with ord=ord; vecreg=vecreg; }
-*)
-              end ;
               (* Helper function returns a fresh label and a boolean for if it should fault, 
                  if a fault check is need. Otherwise return `None` *)
               let fault_update st =
@@ -918,8 +918,8 @@ let set_same_loc st n0 =
                   let pte_val = CoSt.get_pte_value st in
                   (if do_kvm && check_fault then label_fault pte_val else None), st in 
               let bank = n.evt.bank in
-                begin match bank with
-              | Instr -> Warn.fatal "not letting instr write happen"
+              begin match bank with
+              | Instr -> Warn.fatal "instruction annotation to data bank not possible?"
               | Ord ->
                  let st = set_write_val_ord st n in
                  let check_fault, st = fault_update st in
@@ -1076,13 +1076,11 @@ let set_dep_v nss =
 (* TODO: this is wrong for Store CR's: consider Rfi Store PosRR *)
 let set_read_individual_v n cell check_value =
   let e = n.evt in
-  let v = E.extract_value cell.(0) e.atom in
-  if O.verbose > 2 then
-    eprintf "SET READ: loc=%s cell=0x%x, v=0x%x\n" (Code.pp_loc n.evt.loc) cell.(0) v ;
+  let v = E.extract_value cell.(0) e.atom in 
+  (* eprintf "SET READ: loc=%s cell=0x%x, v=0x%x\n" (Code.pp_loc n.evt.loc) cell.(0) v ; *)
   let e = { e with v=v; check_value } in
-  n.evt <- e ;
-  if O.verbose > 2 then
-    eprintf "AFTER %a\n" debug_node n
+  n.evt <- e
+  (* eprintf "AFTER %a\n" debug_node n *)
 
 let set_read_pair_v n cell check_value =
   let e = n.evt in
@@ -1221,10 +1219,10 @@ let finish n =
     eprintf "READ VALUES\n" ;
     debug_cycle stderr n ;
     eprintf "FINAL VALUES [%s]\n"
-      (String.concat ","
-         (List.map
-            (fun (loc,(v,_pte)) -> sprintf "%s -> 0x%x"
-                (Code.pp_loc loc) v) vs))
+      (vs |> List.map
+            ( fun (loc,(v,_pte)) -> sprintf "%s -> 0x%x"
+                (Code.pp_loc loc) v )
+          |> String.concat "," )
   end ;
   if O.variant Variant_gen.Self then check_fetch n;
   initvals

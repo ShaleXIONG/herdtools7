@@ -167,9 +167,7 @@ module U = TopUtils.Make(O)(Comp)
           let r,init,i,st =
             Comp.emit_load_one st p init loc in
           Some r,init,i,st
-        else begin
-          call_emit_access st p init n
-        end
+        else call_emit_access st p init n
     | No,Code _ -> call_emit_access st p init n
     | Yes (dp,r1,n1),_ -> call_emit_access_dep st p init n dp r1 n1 in
     o,init,ip@i,st
@@ -439,8 +437,10 @@ let max_set = IntSet.max_elt
       if (not (StringSet.mem loc atoms) && O.optcond) then k
       else cons_one loc v k in
 
-    let rec check_rec p i =
-
+    (* - `p`, process number, 
+       - `i`. initial value, 
+       - `xvs`, type `U.cos`, the final values of write events for all locations *)
+    let check p i xvs =
       let open Config in
       function
       | [] -> i,[],[]
@@ -456,46 +456,51 @@ let max_set = IntSet.max_elt
               end
           | Unicond -> assert false
           | Cycle -> begin
-              match vs with
-              | [] -> i,[],[]
-              | [[(v,_)]] -> i,[],add_look_loc x v []
-              | [[_;(v,_)]] ->
-                  begin match O.do_observers with
-                  | Local -> i,[],add_look_loc x v []
-                  | Avoid|Accept|Three|Four|Infinity
-                    -> i,[],cons_one x v []
-                  | Enforce ->
-                      let i,c,f = call_build_observers p i x vs in
-                      i,c,add_look_loc x v f
-                  end
-              | _ ->
-                  let vs_flat = List.flatten vs in
-                  let v,_ = Misc.last vs_flat in
-                  begin match O.do_observers with
-                  | Local -> i,[],add_look_loc x v []
-                  | Three ->
-                      begin match vs_flat with
-                      | _x1::_x2::_x3::_x4::_ ->
-                          Warn.fatal "More than three writes"
-                      | _ -> i,[],cons_one x v []
-                      end
-                  |Four ->
-                      begin match vs_flat with
-                      | _x1::_x2::_x3::_x4::_x5::_ ->
-                          Warn.fatal "More than four writes"
-                      | _ -> i,[],cons_one x v []
-                      end
-                  | Infinity ->
-                      i,[],cons_one x v []
-                  | _ ->
-                      let i,c,f = call_build_observers p i x vs in
-                      i,c,add_look_loc x v f
-                  end
-          end in
-          let i,cs,fs =
-            check_rec (p+List.length c) i xvs in
-          i,c@cs,f@fs in
-    check_rec
+            match vs with
+            | [] -> i,[],[]
+            (* the common case with one write event *)
+            | [[(v,_)]] -> i,[],add_look_loc x v []
+            | [[_;(v,_)]] ->
+                begin match O.do_observers with
+                | Local -> i,[],add_look_loc x v []
+                | Avoid|Accept|Three|Four|Infinity
+                  -> i,[],cons_one x v []
+                | Enforce ->
+                    let i,c,f = call_build_observers p i x vs in
+                    i,c,add_look_loc x v f
+                end
+            | _ ->
+                let vs_flat = List.flatten vs in
+                let v,_ = Misc.last vs_flat in
+                begin match O.do_observers with
+                | Local -> i,[],add_look_loc x v []
+                | Three ->
+                    begin match vs_flat with
+                    | _x1::_x2::_x3::_x4::_ ->
+                        Warn.fatal "More than three writes"
+                    | _ -> i,[],cons_one x v []
+                    end
+                |Four ->
+                    begin match vs_flat with
+                    | _x1::_x2::_x3::_x4::_x5::_ ->
+                        Warn.fatal "More than four writes"
+                    | _ -> i,[],cons_one x v []
+                    end
+                | Infinity ->
+                    i,[],cons_one x v []
+                | _ ->
+                    let i,c,f = call_build_observers p i x vs in
+                    i,c,add_look_loc x v f
+                end
+        end in
+        (* Update the procedure number, carry over the new `i`,
+           and accumulating the new results of `c` and `f` *)
+        (p+List.length c), i, cs@c, fs@f
+      ) (p, i, [], []) xvs in
+      i,cs,fs in
+      (* END of check definition *)
+    check
+(* END of check_writes *)
 
   let compile_store st p init n =
     let ro,init,c,st = call_emit_access st p init n in
@@ -745,8 +750,6 @@ let max_set = IntSet.max_elt
               *)
               let i,cs,(m,fs),ios,env =
                 do_rec (List.length obsc) i splitted in
-              if O.verbose > 2 then
-                eprintf "All final env from `compile_proc`: %s\n" (F.dump_state fs);
               i,obsc@cs,(m,f@fs),ios,env
             else Warn.fatal "Last minute check"
           else  Warn.fatal "Too many procs" in
@@ -853,7 +856,6 @@ let max_set = IntSet.max_elt
           | Cycle -> F.check final_value
           | Observe -> F.observe final_value in
         let i = if do_kvm then A.complete_init O.hexa initvals i else i in
-        eprintf "init after complete_init: %s\n" (A.pp_env i);
         (i,c,fc flts,env),
         (U.compile_prefetch_ios (List.length obsc) ios,
          U.compile_coms splitted)

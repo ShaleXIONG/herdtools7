@@ -210,7 +210,6 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
            assert (evt.C.C.bank = Code.Ord || evt.C.C.bank = Code.CapaSeal) ;
            Some (I (prev_value evt.C.C.v))
         | None|Some Code.J -> None in
-        (* *)
         if show_in_cond n then match v with
         | Some v ->
            let add_to_fs r v fs =
@@ -307,7 +306,14 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
       if do_kvm then
         List.map (dump_flt " /\\ ") flts 
         |> String.concat " /\\ "
-      else ""
+      else 
+       (* The following are for memtag etc *)
+       let pp = List.map (dump_flt " \\/ ") flts in
+       let pp = String.concat " \\/ " pp in
+       match flts with
+       | [] -> ""
+       | [_,xs] when FaultSet.is_singleton xs -> "~" ^ pp
+       | _ -> sprintf "~(%s)" pp
 
     let faults_to_string flts = 
         flts |> List.map
@@ -328,10 +334,9 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
           and ppflts = dump_flts flts in
           let cc = match ppfs,ppflts with
           | "","" -> ""
-          | "",_ -> ppflts
-          | _,"" -> ppfs
-          | _,_ -> sprintf "(%s) /\\ (%s)" ppfs ppflts in
-          let cc = "(" ^ cc ^ ")" in
+          | "",_ -> "(" ^ ppflts ^ ")"
+          | _,"" -> "(" ^ ppfs ^ ")"
+          | _,_ -> sprintf "(%s) /\\ %s" ppfs ppflts in
           if cc <> "" then
             fprintf chan "%sexists %s\n" (if !Config.neg then "~" else "") cc
       | Forall ffs ->
