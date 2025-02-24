@@ -166,7 +166,8 @@ module WPTE = struct
 
   type t = AF | DB | OA | DBM | VALID
 
-  let all= [AF; DB; OA; DBM; VALID;]
+  let all = [AF; DB; OA; DBM; VALID;]
+  let fold f r = List.fold_right f all r
 
   let compare w1 w2 = match w1,w2 with
   | (AF,AF) | (DB,DB) | (OA,OA) | (DBM,DBM) | (VALID,VALID)
@@ -188,14 +189,28 @@ module WPTE = struct
      | DBM -> "DBM"
      | VALID -> "VA"
      | OA -> "OA"
+
+   let pp_alt = function
+     | AF -> "AF"
+     | DB -> "DB"
+     | DBM -> "DBM"
+     (* Avoid the use of `VA`, which often means virtual address *)
+     | VALID -> "VALID"
+     | OA -> "OA"
 end
 
 module WPTESet = MySet.Make(WPTE)
 
 type atom_pte =
   | Read|ReadAcq|ReadAcqPc
-  | Set of  WPTESet.t
-  | SetRel of  WPTESet.t
+  (* Toggle the value between 0 and 1 *)
+  | Set of WPTESet.t
+  | SetRel of WPTESet.t
+  (* TODO: illegal behaviour on physical address manipulation `OA` *)
+  (* Precise value of 0 to 1 *)
+  | SetOne of WPTE.t
+  (* Precise value of 1 to 0 *)
+  | SetZero of WPTE.t
 
 type neon_opt = SIMD.atom
 
@@ -252,6 +267,8 @@ let is_ifetch a = match a with
      | ReadAcqPc -> "Q"
      | Set set -> pp_w_pte set
      | SetRel set -> pp_w_pte set ^"L"
+     | SetOne set -> "One" ^ WPTE.pp_alt set
+     | SetZero set -> "Zero" ^ WPTE.pp_alt set
 
    let pp_pair_opt = function
      | Pa -> ""
@@ -337,9 +354,10 @@ let is_ifetch a = match a with
 
    let fold_pte f r =
      if do_kvm then
-       let g fs r = f (Set fs) (f (SetRel fs) r) in
-       let r = fold_subsets g r in
-       f Read (f ReadAcq (f ReadAcqPc r))
+       let pte_toggle_f fs r = r |> f (SetRel fs) |> f (Set fs) in
+       let pte_write_f flag r = r |> f (SetOne flag) |> f (SetZero flag) in
+       r |> fold_subsets pte_toggle_f |> WPTE.fold pte_write_f
+       |> f Read |> f ReadAcq |> f ReadAcqPc
      else r
 
    let fold_atom_rw f r = f PP (f PL (f AP (f AL r)))
@@ -568,22 +586,38 @@ let overwrite_value v ao w = match ao with
     let compare = AArch64PteVal.compare
 
     (* TODO what is `loc` *)
-    let do_setpteval a f p loc =
+    let do_setpteval a flags pte loc =
       let open AArch64PteVal in
-      let fs = match f with
-        | Set f|SetRel f -> f
-        | Read|ReadAcq|ReadAcqPc ->
-           Warn.user_error "Atom %s is not a pteval write" (pp_atom a) in
-      WPTESet.fold
+      let open WPTE in
+      let toggle_pte flag_set pteval = WPTESet.fold
         (fun f p ->
-          let open WPTE in
           match f with
           | AF -> { p with af = 1-p.af; }
           | DB -> { p with db = 1-p.db; }
           | DBM -> { p with dbm = 1-p.dbm; }
           | VALID -> { p with valid = 1-p.valid; }
           | OA -> { p with oa=OutputAddress.PHY (loc ()); })
-      fs p
+      flag_set pteval in
+      let check_init_or_warning init actual name = 
+          if init <> actual then
+            Warn.user_error "The init value of %s is not %d" name init in
+      let precise_pte flag init pteval =
+          match flag with
+          | AF -> check_init_or_warning init pteval.af "AF";
+                  { pteval with af = 1-pteval.af; }
+          | DB -> check_init_or_warning init pteval.db "DB"; 
+                  { pteval with db = 1-pteval.db; }
+          | DBM -> check_init_or_warning init pteval.dbm "DBM";
+                   { pteval with dbm = 1-pteval.dbm; }
+          | VALID -> check_init_or_warning init pteval.valid "VALID";
+                     { pteval with valid = 1-pteval.valid; }
+          | OA -> Warn.user_error "(Set-) One and Zero is not support for OA" in
+      match flags with
+        | Set f|SetRel f -> toggle_pte f pte
+        | SetOne f -> precise_pte f 0 pte
+        | SetZero f -> precise_pte f 1 pte
+        | Read|ReadAcq|ReadAcqPc ->
+                Warn.user_error "Atom %s is not a pteval write" (pp_atom a) 
 
     (* TODO function name is confused, it set the pteval based on atom `a` *)
     let set_pteval a p =
