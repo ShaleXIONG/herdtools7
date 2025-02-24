@@ -2624,6 +2624,9 @@ module Make(Cfg:Config) : XXXCompile_gen.S =
           | Some (Pte (SetRel _),None) ->
               let init,cs,st = emit_set_pteval_reg true st p init r2 (Misc.add_pte loc) in
               None,init,cs2@cs,st
+          | Some (Pte ((SetOne _)|(SetZero _)),None)
+          (* TODO IMPL PTE ONE and ZERO *)
+            -> assert false
           | Some ((Pte _,Some _)|(Pte (Read|ReadAcq|ReadAcqPc),_))
             -> assert false
           | Some (Plain _,None) -> assert false
@@ -2661,6 +2664,7 @@ module Make(Cfg:Config) : XXXCompile_gen.S =
              None,init,cs2@cs,st
           | Some (Pair _,Some _) -> assert false
           end
+      (* END of `Some W` *)
       | Some J,_ -> emit_joker st init
       | _,Code _ -> Warn.fatal "Not Yet (%s,dep_data)" (C.debug_evt e)
 
