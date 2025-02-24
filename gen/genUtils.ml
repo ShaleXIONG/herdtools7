@@ -61,7 +61,7 @@ module Make(Cfg:Config)(A:Arch_gen.S)
          find_rec init
 
        let next_const st p init k =
-
+         (* Note: a better function `List.find_map` is introduced 4.10 *)
          let rec find_rec = function
            | (Reg (p0,r0),Some k0)::_ when A.initval_eq k k0 && p = p0 ->
                r0,init,st
