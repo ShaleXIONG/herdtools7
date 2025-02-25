@@ -19,6 +19,8 @@ module type S = sig
   type t
   val pp : t -> string
   val default : string -> t
+  (* Initial a valid pte_value that can be used to process atom list `pte_atom` *)
+  val init : string -> pte_atom list -> t
   val compare : t -> t -> int
   (* TODO function name is confused, it set the pteval based on `pte_atom` *)
   val set_pteval : pte_atom -> t -> (unit -> string) -> t
@@ -31,6 +33,7 @@ module No(A:sig type arch_atom end) = struct
   type t = string
   let pp a = a
   let default s = s
+  let init s _atom_list = default s
   let compare _ _ = 0
   let set_pteval _ p _ = p
   let set_pteval_field p _ _ = p
