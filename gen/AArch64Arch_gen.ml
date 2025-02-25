@@ -575,6 +575,55 @@ let overwrite_value v ao w = match ao with
 
     let default = AArch64PteVal.default
 
+    (* Decide the initial pte value for location `loc`
+       and align up with the atom_pte_list *)
+    let init loc pte_atom_list = 
+      let pte_val = default loc in
+      let pte_atom_list = List.filter_map 
+        ( fun (atom, _mach_size) -> match atom with
+          | Pte(pte_atom) -> Some(pte_atom)
+          | _ -> None
+        ) pte_atom_list in
+      (* Accumulator `acc` is `(af,db,dbm,valid,pteval)`.
+         Assign the `pteval` if those fields has not assigned values.
+         Boolean accumulator `valid,af,db,dbm` tracks 
+         if those fields has assigned. *)
+      let (_,_,_,_,pteval) = List.fold_left ( fun acc atom_pte ->
+        (* Helper function to udpate `pteval` `field` to `init_value` *)
+        let update_pte (af,db,dbm,valid,pteval) field init_value = 
+        let open AArch64PteVal in
+        let open WPTE in
+        match field with
+        | AF -> 
+          if init_value <> pteval.af then
+            if af then Warn.user_error "Fail to set the initial VA."
+            else (true,db,dbm,valid,{pteval with af = init_value})
+          else (af,db,dbm,valid,pteval)
+        | DB ->
+          if init_value <> pteval.db then
+            if db then Warn.user_error "Fail to set the initial DB."
+            else (af,true,dbm,valid,{pteval with db = init_value})
+          else (af,db,dbm,valid,pteval)
+        | DBM ->
+          if init_value <> pteval.dbm then
+            if dbm then Warn.user_error "Fail to set the initial DBM."
+            else (af,db,true,valid,{pteval with dbm = init_value})
+          else (af,db,dbm,valid,pteval)
+        | VALID ->
+          if init_value <> pteval.valid then
+            if valid then Warn.user_error "Fail to set the initial DBM."
+            else (af,db,dbm,true,{pteval with valid = init_value})
+          else (af,db,dbm,valid,pteval)
+        | OA -> 
+                Warn.user_error "PTESetOneOA and PTESetZeroOA is not supported." 
+        in (* END of helper function `update_pte` *)
+        match atom_pte with
+        | SetOne(field) -> update_pte acc field 0
+        | SetZero(field)-> update_pte acc field 1
+        | _ -> acc
+        ) (false,false,false,false,pte_val) pte_atom_list in
+    pteval
+
     let compare = AArch64PteVal.compare
 
     (* TODO what is `loc` *)
