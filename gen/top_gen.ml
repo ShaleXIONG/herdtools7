@@ -414,9 +414,10 @@ let max_set = IntSet.max_elt
               i,c::cs,f@fs
         with NoObserver -> build_observers p i x vss
 
-  (* `env_wide` is a lookup table for the widths of locations and `atoms` is a set of all atom *)
+  (* The function decides the initial value `i` and TODO
+     `env_wide` is a lookup table for the widths of locations and `atoms` is a set of all atom *)
   let check_writes env_wide atoms =
-
+    Printf.eprintf "CHECK_WRITES\n";
     let call_build_observers p i x vs =
       if StringMap.mem x env_wide then
         Warn.user_error "No observers on wide accesses"
@@ -443,10 +444,25 @@ let max_set = IntSet.max_elt
       if (not (StringSet.mem loc atoms) && O.optcond) then k
       else cons_one loc v k in
 
-    (* `p` -> process number, `i` -> accumulator?, input -> type `U.cos`, the final values of write events for all locations *)
+    (* - `p`, process number
+       - `i`, initial value accumulator
+       - input `xvs`, type `U.cos`, the final values of write events for all locations *)
     let check_rec p i xvs =
       let open Config in
       let _p,i,cs,fs = List.fold_left (fun (p, i, cs, fs) (x, vs) ->
+          Printf.eprintf "check_writes: key -> %s, i -> [%s], fs -> [%s]\n"
+            x
+            ( i |> List.map 
+               ( fun (loc,initval) -> Printf.sprintf "%s -> %s" 
+                 (A.pp_location loc)
+                 ( match initval with 
+                 | Some initval -> A.pp_initval initval
+                 | None -> "none") )
+            |> String.concat "," )
+            ( fs |> List.map 
+               ( fun (loc,_vset) -> Printf.sprintf "%s" 
+                 (A.pp_location loc) )
+            |> String.concat "," ) ;
         let i,c,f = match O.cond with
           | Observe ->
             let vs = List.flatten vs in
@@ -457,7 +473,7 @@ let max_set = IntSet.max_elt
                 i,[],cons_one x v []
             end
           | Unicond -> assert false
-          (* common branch *)
+          (* default configuration *)
           | Cycle -> begin
             match vs with
             | [] -> i,[],[]
@@ -496,8 +512,8 @@ let max_set = IntSet.max_elt
                     i,c,add_look_loc x v f
                 end
         end in
-        (* Update the procedure number, carry over the new `i`,
-           and accumulating the new results of `c` and `f` *)
+        (* Update the procedure number, carry over the new init `i`,
+           and appending the new results of `c` and `f` *)
         (p+List.length c), i, cs@c, fs@f
       ) (p, i, [], []) xvs in
       i,cs,fs in
@@ -727,6 +743,9 @@ let max_set = IntSet.max_elt
                    (TypBase.pp t1) (TypBase.pp t2))
           env_p env in
     (* end of `do_rec` *)
+    (* - `i`, the initial state prior the compilation
+       - TODO `obsc`,
+       - TODO `f` *)
     let i,obsc,f =
       match O.cond with
       | Unicond -> [],[],[]

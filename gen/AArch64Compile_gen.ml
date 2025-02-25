@@ -2626,7 +2626,7 @@ module Make(Cfg:Config) : XXXCompile_gen.S =
               None,init,cs2@cs,st
           | Some (Pte ((SetOne _)|(SetZero _)),None)
           (* TODO IMPL PTE ONE and ZERO *)
-            -> assert false
+            -> Printf.eprintf "XXXXXX\n"; assert false
           | Some ((Pte _,Some _)|(Pte (Read|ReadAcq|ReadAcqPc),_))
             -> assert false
           | Some (Plain _,None) -> assert false
