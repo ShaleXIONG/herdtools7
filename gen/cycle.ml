@@ -584,9 +584,12 @@ module CoSt = struct
       map=M.add Ord lst st.map; }
 end
 
-let pte_val_init loc = match loc with
-| Code.Data loc when do_kvm -> PteVal.default loc
-| _ -> pte_default
+(* Decide the initial pte value. *)
+let pte_val_init loc = 
+  match loc with
+    (* TODO: why this since the `pte_dafault` of `OA( * )` is enough?? *)
+    | Code.Data loc when do_kvm -> PteVal.default loc
+    | _ -> pte_default 
 
 (* Check if `pte_val` might fault *)
 let label_fault pte_val = Some ((Label.next_label "L"), (PteVal.can_fault pte_val))
@@ -958,6 +961,7 @@ let set_same_loc st n0 =
               (* TODO Rework here, esp the function `next_loc` and ref value `next_x_pred`.
                  They are all difficult to understand. *)
                  let next_x_pred = ref false in
+                 Printf.eprintf "YYYY\n";
                  (* get the previous `pte_value` *)
                  let pte_val = CoSt.get_pte_value st in
                  (* update the pte value in kvm variant *)
@@ -1013,6 +1017,8 @@ let set_same_loc st n0 =
               let loc = n.evt.loc in
               let sz = get_wide_list ns in
               let i = if do_kvm then k else 0 in
+              (* Decide the initial state prior processing *)
+              (* TODO check and compute the correct init pte value *)
               let pte_val = pte_val_init loc in
               (* Since it is a cycle, the initial value of `check_value`
                  and `check_fault` depend on if there are write to 
