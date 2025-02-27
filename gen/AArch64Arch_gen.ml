@@ -227,7 +227,7 @@ let applies_atom (a,_) d = match a,d with
 | AcqPc _,R
 | Rel _,W
 | Pte (Read|ReadAcq|ReadAcqPc),R
-| Pte (Set _|SetRel _),W
+| Pte (Set _|SetRel _| SetOne _| SetZero _),W
 | Instr, R
 | (Plain _|Atomic _|Tag|CapaTag|CapaSeal|Neon _|Pair _),(R|W)
   -> true
