@@ -306,7 +306,7 @@ module Make(C:Builder.S)
         end
 
     (* List.is_empty only supports for ocaml 5.1 afterwards *)
-    let is_empty_list l = List.compare_length_with l 0 = 0
+    let is_empty_list l = (l = [])
 
     let pp_ess ess =
       String.concat " "
