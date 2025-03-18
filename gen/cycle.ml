@@ -595,7 +595,7 @@ let pte_val_init ns loc =
             | _ -> None
          ) ns in
       PteVal.init loc atom_list
-            | _ -> pte_default 
+    | _ -> pte_default 
 
 (* Check if `pte_val` might fault *)
 let label_fault pte_val = Some ((Label.next_label "L"), (PteVal.can_fault pte_val))
@@ -1171,6 +1171,8 @@ let do_set_read_v =
   | []   -> assert false
   | n::_ ->
      let sz = get_wide_list ns in
+     (* TODO only ONE call to `pte_val_init` is needed 
+        between `do_set_read_v` and `set_all_write_val` *)
      let pte_val = pte_val_init ns n.evt.loc in
      let check_value = exist_plain_value_write ns in
      let check_fault = exist_pte_value_write ns in
@@ -1189,6 +1191,7 @@ let set_read_v nss =
 
 (* zyva... *)
 
+(* TODO carry out the expected initial value for all PTE? *)
 let finish n =
   let st = (0,0),Env.empty in
 (* Set locations *)
@@ -1266,6 +1269,7 @@ let resolve_edges = function
 let make es =
   let es,c = resolve_edges es in
   let initvals = finish c in
+  (* TODO: initvals need to change to something reflect pte value *)
   es,c,initvals
 
 (*************************)

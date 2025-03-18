@@ -414,8 +414,9 @@ let max_set = IntSet.max_elt
               i,c::cs,f@fs
         with NoObserver -> build_observers p i x vss
 
-  (* The function decides the initial value `i` and TODO
-     `env_wide` is a lookup table for the widths of locations and `atoms` is a set of all atom *)
+  (* The function decides the initial value `i`
+     - `env_wide` is a lookup table for the widths of locations,
+     - `atoms` is a set of all atom *)
   let check_writes env_wide atoms =
     Printf.eprintf "CHECK_WRITES\n";
     let call_build_observers p i x vs =
@@ -439,30 +440,32 @@ let max_set = IntSet.max_elt
         F.cons_int (A.Loc x) v.(0) fs
       else fs in
 
-    (* add the value `v` of `loc` into the accumulator `k` *)
+    (* Add the value `v` of `loc` into the final value `k`.
+       The type of `k is `fenv` (defined in `final.ml) *)
     let add_look_loc loc v k =
       if (not (StringSet.mem loc atoms) && O.optcond) then k
       else cons_one loc v k in
 
     (* - `p`, process number
        - `i`, initial value accumulator
-       - input `xvs`, type `U.cos`, the final values of write events for all locations *)
+       - input `xvs`, type `U.cos` (defined in topUtil.ml)
+         the final values of write events for all locations *)
     let check_rec p i xvs =
       let open Config in
+      (* The accumulator:
+        - `p` procedure number.
+        - `i` initial value, of type `init` (defined in archExtra_gen.ml).
+          It remains unchanged in the default configuration.
+          It is only updated via `call_build_observers`.
+        - `cs` pseudo code. It is empty in the default configuration.
+          It is only updated via `call_build_observers`.
+        Element of `vxs` is `(x, vs)`.
+        - `x` is the location represented by a string
+        - `vs` the final value of the location `x` *)
       let _p,i,cs,fs = List.fold_left (fun (p, i, cs, fs) (x, vs) ->
-          Printf.eprintf "check_writes: key -> %s, i -> [%s], fs -> [%s]\n"
-            x
-            ( i |> List.map 
-               ( fun (loc,initval) -> Printf.sprintf "%s -> %s" 
-                 (A.pp_location loc)
-                 ( match initval with 
-                 | Some initval -> A.pp_initval initval
-                 | None -> "none") )
-            |> String.concat "," )
-            ( fs |> List.map 
-               ( fun (loc,_vset) -> Printf.sprintf "%s" 
-                 (A.pp_location loc) )
-            |> String.concat "," ) ;
+        (* - `i`, new init value after this iteration,
+           - `c`, new pseudo code to be added into `cs`,
+           - `f`, new final value to be added into `fs` *)
         let i,c,f = match O.cond with
           | Observe ->
             let vs = List.flatten vs in
@@ -482,6 +485,7 @@ let max_set = IntSet.max_elt
             | [[_;(v,_)]] ->
                 begin match O.do_observers with
                 | Local -> i,[],add_look_loc x v []
+                (* Default is `Avoid` *)
                 | Avoid|Accept|Three|Four|Infinity
                   -> i,[],cons_one x v []
                 | Enforce ->
@@ -489,27 +493,24 @@ let max_set = IntSet.max_elt
                     i,c,add_look_loc x v f
                 end
             | _ ->
+                (* TODO why not always flatten at beginnig *)
                 let vs_flat = List.flatten vs in
                 let v,_ = Misc.last vs_flat in
                 begin match O.do_observers with
                 | Local -> i,[],add_look_loc x v []
                 | Three ->
-                    begin match vs_flat with
-                    | _x1::_x2::_x3::_x4::_ ->
-                        Warn.fatal "More than three writes"
-                    | _ -> i,[],cons_one x v []
-                    end
-                |Four ->
-                    begin match vs_flat with
-                    | _x1::_x2::_x3::_x4::_x5::_ ->
-                        Warn.fatal "More than four writes"
-                    | _ -> i,[],cons_one x v []
-                    end
+                  if List.length vs_flat > 3 then
+                    Warn.fatal "More than three writes"
+                  else i,[],cons_one x v []
+                | Four ->
+                  if List.length vs_flat > 4 then
+                    Warn.fatal "More than four writes"
+                  else i,[],cons_one x v []
                 | Infinity ->
-                    i,[],cons_one x v []
+                  i,[],cons_one x v []
                 | _ ->
-                    let i,c,f = call_build_observers p i x vs in
-                    i,c,add_look_loc x v f
+                  let i,c,f = call_build_observers p i x vs in
+                  i,c,add_look_loc x v f
                 end
         end in
         (* Update the procedure number, carry over the new init `i`,
@@ -880,6 +881,7 @@ let max_set = IntSet.max_elt
               F.run evts m
           | Cycle -> F.check final_value
           | Observe -> F.observe final_value in
+        (* TODO add the initial pte value to `i`??? *)
         let i = if do_kvm then A.complete_init O.hexa initvals i else i in
         (i,c,fc flts,env),
         (U.compile_prefetch_ios (List.length obsc) ios,
@@ -1065,6 +1067,7 @@ let make_test name ?com ?info ?check ?scope es =
   try
     if O.verbose > 1 then eprintf "**Test %s**\n" name ;
     if O.verbose > 2 then eprintf "**Cycle %s**\n" (pp_edges es) ;
+    (* TODO carry out the initial pte value in `init` ??? *)
     let es,c,init = C.make es in
     test_of_cycle name ?com ?info ?check ?scope ~init es c
   with
