@@ -52,6 +52,7 @@ module type S = sig
       string ->
         ?com:string -> ?info:Code.info -> ?check:check ->
           ?scope:BellInfo.scopes -> ?init:Code.env ->
+            ?init_pte:(string * C.PteVal.t) list ->
             edge list -> node -> test
 
 (* Dump the given test *)

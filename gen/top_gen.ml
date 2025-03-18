@@ -1043,7 +1043,7 @@ let tr_labs m env =
 let do_self =  O.variant Variant_gen.Self
 
 let test_of_cycle name
-  ?com ?(info=[]) ?(check=(fun _ -> true)) ?scope ?(init=[]) es c =
+  ?com ?(info=[]) ?(check=(fun _ -> true)) ?scope ?(init=[]) ?(init_pte=[]) es c =
   let com = match com with None -> pp_edges es | Some com -> com in
   let (init,prog,final,env),(prf,coms) = compile_cycle check init c in
   let archinfo = Comp.get_archinfo c in
@@ -1068,8 +1068,8 @@ let make_test name ?com ?info ?check ?scope es =
     if O.verbose > 1 then eprintf "**Test %s**\n" name ;
     if O.verbose > 2 then eprintf "**Cycle %s**\n" (pp_edges es) ;
     (* TODO carry out the initial pte value in `init` ??? *)
-    let es,c,init = C.make es in
-    test_of_cycle name ?com ?info ?check ?scope ~init es c
+    let es,c,init,init_pte = C.make es in
+    test_of_cycle name ?com ?info ?check ?scope ~init ~init_pte es c
   with
   | Misc.Fatal msg|Misc.UserError msg ->
       Warn.fatal "Test %s [%s] failed:\n%s" name (pp_edges es) msg
