@@ -670,6 +670,8 @@ let overwrite_value v ao w = match ao with
       Printf.eprintf "PTEVAL: %s\n" (AArch64PteVal.pp true pte_val);
       pte_val
 
+    let as_virtual p = AArch64PteVal.as_virtual p
+
     let compare = AArch64PteVal.compare
 
     (* TODO what is `loc` *)
@@ -1039,6 +1041,7 @@ include
       let specials = vregs
       let specials2 = pregs
       let specials3 = zaslices
+      module PteVal_gen = PteVal
     end)
 
 end

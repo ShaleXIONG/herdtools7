@@ -1048,7 +1048,10 @@ let test_of_cycle name
   let (init,prog,final,env),(prf,coms) = compile_cycle check init c in
   let archinfo = Comp.get_archinfo c in
   let m_labs = num_labels prog in
-  let init = tr_labs m_labs init in
+  let init = (tr_labs m_labs init) @ List.map 
+  (* Add the init pte value `init_pte` into `init`, so it will print
+  in the pre-condition of the final litmus test. *)
+    ( fun (loc, pte) -> (A.Loc ("pte_" ^ loc), Some (A.P pte)) ) init_pte in
   let coms = String.concat " " coms in
   let info =
     let myinfo =
