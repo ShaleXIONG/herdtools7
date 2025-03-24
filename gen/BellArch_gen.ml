@@ -27,7 +27,7 @@ module type Config = sig
   val variant : Variant_gen.t -> bool
 end
 
-module Make(O:Config) = struct
+module Make(O:Config)(Value:Value.S) = struct
 
 include BellBase
 
@@ -262,7 +262,7 @@ let var_fence f = match varatom with
 (********)
 
 include ClassicDep
-include NoRmw.Make(struct type arch_atom = atom end)
+include NoRmw.Make(struct type arch_atom = atom end)(Value)
 include NoEdge
 include
     ArchExtra_gen.Make

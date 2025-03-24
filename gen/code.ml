@@ -58,23 +58,15 @@ let ok = Data ok_str
 let myok p n = Data (Printf.sprintf "ok%i%i" p n)
 let myok_proc p = Data (Printf.sprintf "ok%i" p)
 
-type v = NoValue | Plain of int
-let value_to_int = function
-    | NoValue -> -1
-    | Plain v -> v
-let no_value = NoValue
-let value_of_int v = Plain v
-let value_compare lhs rhs = 
-    match lhs, rhs with
-    | NoValue, NoValue -> 0
-    | NoValue, Plain _ -> -1
-    | Plain _, NoValue -> 1
-    | Plain lhs, Plain rhs -> Misc.int_compare lhs rhs
+(* TODO remove *)
+module Value = Value.Make(PteVal_gen.No(struct type arch_atom = string list end))
 
-let pp_v ?(hexa=false) v =
-  value_to_int v |>
-  Printf.sprintf
-    (if hexa then "0x%x" else "%d")
+type v = Value.v
+let value_to_int = Value.value_to_int
+let no_value = Value.no_value
+let value_of_int = Value.value_of_int
+let value_compare = Value.value_compare
+let pp_v = Value.pp_v
 
 type proc = Proc.t
 let pp_proc p = Proc.pp p

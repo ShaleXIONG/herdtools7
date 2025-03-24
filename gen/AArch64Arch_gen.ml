@@ -27,7 +27,7 @@ module Make
       val moreedges : bool
       val fullmixed : bool
       val variant : Variant_gen.t -> bool
-    end) = struct
+    end)(Value:Value.S) = struct
 
 let do_self = C.variant Variant_gen.Self
 let do_tag = C.variant Variant_gen.MemTag
@@ -56,7 +56,7 @@ module Mixed =
     (struct
       let naturalsize = Some C.naturalsize
       let fullmixed = C.fullmixed
-    end)
+    end)(Value)
 
 (* AArch64 has more atoms that others *)
 let bellatom = false
@@ -532,7 +532,7 @@ let is_ifetch a = match a with
        (struct
          let naturalsize () = C.naturalsize
          let endian = endian
-       end)
+       end)(Value)
 
 let overwrite_value v ao w = match ao with
 | None

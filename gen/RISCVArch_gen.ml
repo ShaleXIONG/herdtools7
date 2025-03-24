@@ -20,7 +20,7 @@ module Config = struct
 end
 
 module Make
- (C:sig val naturalsize : MachSize.sz val moreedges : bool end) = struct
+ (C:sig val naturalsize : MachSize.sz val moreedges : bool end)(Value:Value.S) = struct
 
    include RISCVBase
 
@@ -36,7 +36,7 @@ module Make
        (struct
          let naturalsize = Some C.naturalsize
          let fullmixed = C.moreedges
-       end)
+       end)(Value)
 
    include NoWide
 
@@ -143,7 +143,7 @@ module Make
        (struct
          let naturalsize () = C.naturalsize
          let endian = endian
-       end)
+       end)(Value)
 
    let overwrite_value v ao w = match ao with
    | None| Some (MO _|Atomic _) -> w (* total overwrite *)
@@ -213,7 +213,7 @@ let pp_dp = function
   | CTRL -> "Ctrl"
   | CTRLISYNC -> "CtrlFenceI"
 
-include Exch.Exch(struct type arch_atom = atom end)
+include Exch.Exch(struct type arch_atom = atom type value = Value.v end)
 include NoEdge
 
 include

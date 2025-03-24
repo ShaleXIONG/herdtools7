@@ -283,7 +283,7 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
       with Not_found -> None
 
     (* TODO check if the initial should be change to None? *)
-    let is_load_init e = e.C.C.dir = Some R && e.C.C.v = Plain 0
+    let is_load_init e = e.C.C.dir = Some R && e.C.C.v = Code.value_of_int 0
 
     let check_edge = function
       | C.E.Ws Ext
@@ -305,16 +305,17 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
 (* Poll for value is possible *)
     (* TODO is this simple lift from 2,1,0 to Plain * correct *)
     let do_poll n =
-      match O.poll,n.C.C.prev.C.C.edge.C.E.edge,n.C.C.evt.C.C.v with
+      match O.poll,n.C.C.prev.C.C.edge.C.E.edge,(Code.value_to_int n.C.C.evt.C.C.v) with
       | true,
-        (C.E.Rf Ext|C.E.Leave CRf|C.E.Back CRf),Plain 1 -> true
+        (C.E.Rf Ext|C.E.Leave CRf|C.E.Back CRf),1 -> true
       | _,_,_ -> false
 
     (* TODO is this simple lift from 2,1,0 to Plain * correct *)
     let fetch_val n =
       let n = C.C.find_node (fun n -> C.E.is_com n.C.C.edge) n.C.C.prev in
-      match n.C.C.edge.C.E.edge with
-      | C.E.Rf _-> Plain 2
-      | C.E.Fr _ -> Plain 1
-      | _ -> Plain 0
+      let number = match n.C.C.edge.C.E.edge with
+      | C.E.Rf _-> 2
+      | C.E.Fr _ -> 1
+      | _ -> 0 in
+      Code.value_of_int number
   end

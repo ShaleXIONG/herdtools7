@@ -16,9 +16,10 @@
 
 (** No rmw instruction *)
 
-module Make(A:sig type arch_atom end) = struct
+module Make(A:sig type arch_atom end)(Value:Value.S) = struct
   type rmw
   type rmw_atom = A.arch_atom
+  type rmw_value = Value.v
 
   let pp_rmw _ _ = assert false
   let is_one_instruction _ = assert false

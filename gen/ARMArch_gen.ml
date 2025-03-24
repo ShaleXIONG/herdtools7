@@ -19,7 +19,7 @@ module Config = struct
   let moreedges = false
 end
 
-module Make(C:sig val moreedges : bool end) = struct
+module Make(C:sig val moreedges : bool end)(Value:Value.S) = struct
 include ARMBase
 
 module ScopeGen = ScopeGen.NoGen
@@ -32,7 +32,7 @@ include MachAtom.Make
       let naturalsize=None
       let endian = endian
       let fullmixed = C.moreedges
-    end)
+    end)(Value)
 
 module PteVal = PteVal_gen.No(struct type arch_atom = atom end)
 
@@ -85,7 +85,7 @@ let pp_dp = function
 (*******)
 (* RWM *)
 (*******)
-include Exch.LxSx(struct type arch_atom = atom end)
+include Exch.LxSx(struct type arch_atom = atom and value = Value.v end)
 
 include NoEdge
 

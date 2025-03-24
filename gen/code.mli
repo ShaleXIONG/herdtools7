@@ -31,9 +31,7 @@ val ok : loc
 val myok : int -> int -> loc
 val myok_proc : int -> loc
 
-
-
-type v = NoValue | Plain of int
+type v
 val pp_v : ?hexa:bool -> v -> string
 val no_value : v
 val value_to_int : v -> int

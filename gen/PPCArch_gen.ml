@@ -29,7 +29,7 @@ module Config =
     let moreedges = false
   end
 
-module Make(C:Config)  =
+module Make(C:Config)(Value:Value.S)  =
   struct
     include PPCBase
     let tr_endian x = MachSize.tr_endian C.naturalsize x
@@ -41,7 +41,7 @@ module Make(C:Config)  =
           let naturalsize = Some C.naturalsize
           let endian = endian
           let fullmixed = C.moreedges
-        end)
+        end)(Value)
 
     module PteVal = PteVal_gen.No(struct type arch_atom = atom end)
 
@@ -99,7 +99,7 @@ module Make(C:Config)  =
 (*******)
 (* RWM *)
 (*******)
-    include Exch.LxSx(struct type arch_atom = atom end)
+    include Exch.LxSx(struct type arch_atom = atom type value = Value.v end)
     include NoEdge
 
     include

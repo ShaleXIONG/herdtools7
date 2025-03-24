@@ -18,19 +18,22 @@ module Config = struct
   let moreedges = false
 end
 
-module Make(C:sig val moreedges : bool end) = struct
+module Make(C:sig val moreedges : bool end)(Value:Value.S) = struct
 include MIPSBase
 module ScopeGen = ScopeGen.NoGen
 
 let tr_endian = Misc.identity
+
+(*
+module PteVal = PteVal_gen.No(struct type arch_atom = atom end)
+*)
+
 include MachAtom.Make
     (struct
       let naturalsize=None
       let endian = endian
       let fullmixed = C.moreedges
-    end)
-
-module PteVal = PteVal_gen.No(struct type arch_atom = atom end)
+    end)(Value)
 
 (**********)
 (* Fences *)
@@ -90,7 +93,7 @@ let sequence_dp d1 d2 = match d1 with
 | ADDR -> [d2]
 | DATA|CTRL -> []
 
-include Exch.LxSx(struct type arch_atom = atom end)
+include Exch.LxSx(struct type arch_atom = atom type value = Value.v end)
 include NoEdge
 
 include

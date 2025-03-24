@@ -32,6 +32,7 @@ module type S = sig
   module SIMD : SIMD
 
   type atom
+  type atom_value
   val default_atom : atom
   val instr_atom : atom option
   val applies_atom : atom -> Code.dir -> bool
@@ -52,9 +53,9 @@ module type S = sig
 (* Memory bank *)
   val atom_to_bank : atom -> SIMD.atom Code.bank
 (* Value computation, for mixed size *)
-  val tr_value : atom option -> Code.v -> Code.v
-  val overwrite_value : Code. v -> atom option -> Code.v -> Code.v
-  val extract_value : Code. v -> atom option -> Code.v
+  val tr_value : atom option -> atom_value -> atom_value
+  val overwrite_value : atom_value -> atom option -> atom_value -> atom_value
+  val extract_value : atom_value -> atom option -> atom_value
 (* Typing of wide accesses as arrays of integers *)
   val as_integers : atom option -> int option
 (* Typing of pair accesses is different, so check them *)

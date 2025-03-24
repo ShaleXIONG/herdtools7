@@ -62,6 +62,7 @@ include NoMixed
 include NoWide
 
 module PteVal = PteVal_gen.No(struct type arch_atom = atom end)
+module Value = Value.Make(PteVal)
 
 (**********)
 (* Fences *)
@@ -113,7 +114,7 @@ let sequence_dp _ _ = assert false
 (* RWM *)
 (*******)
 
-include Exch.Exch(struct type arch_atom = atom end)
+include Exch.Exch(struct type arch_atom = atom type value = Value.v end)
 include NoEdge
 
 include

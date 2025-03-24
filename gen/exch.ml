@@ -21,12 +21,14 @@ module
     (I:
        sig
          type atom
+         type value
          val pp : string
          val is_one_instruction : bool
        end) =
   struct
     type rmw = unit
     type rmw_atom = I.atom
+    type rmw_value = I.value
 
     let pp_rmw compat () = if compat then "Rmw" else I.pp
 
@@ -44,18 +46,20 @@ module
     let compute_rmw () _old co_cell  = co_cell
   end
 
-module  LxSx(A:sig type arch_atom end) = struct
+module LxSx(A:sig type arch_atom type value end) = struct
   include Make
     (struct
       type atom = A.arch_atom
+      type value = A.value
       let pp = "LxSx"
       let is_one_instruction = false
     end)
 end
-module  Exch(A:sig type arch_atom end) = struct
+module  Exch(A:sig type arch_atom type value end) = struct
   include Make
   (struct
       type atom = A.arch_atom
+      type value = A.value
       let pp = "Exch"
       let is_one_instruction = true
     end)

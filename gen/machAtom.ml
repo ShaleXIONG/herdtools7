@@ -21,16 +21,18 @@ module type Config = sig
   val fullmixed : bool
 end
 
-module Make(C:Config) = struct
+module Make(C:Config)(Value:Value.S) = struct
 
-  module Mixed = MachMixed.Make(C)
+  module Mixed = MachMixed.Make(C)(Value)
 
   let bellatom = false
 
   module SIMD = NoSIMD
+  module Value = Value
 
   type hidden_atom = Atomic | Reserve | Mixed of MachMixed.t
   type atom = hidden_atom
+  type atom_value = Value.v
 
   let default_atom = Atomic
   let instr_atom = None
@@ -101,7 +103,7 @@ module Make(C:Config) = struct
       (struct
         let naturalsize () = Misc.as_some C.naturalsize
         let endian = C.endian
-      end)
+      end)(Value)
 
   let overwrite_value v ao w = match ao with
   | None| Some (Atomic|Reserve) -> w (* total overwrite *)

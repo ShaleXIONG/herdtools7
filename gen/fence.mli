@@ -25,8 +25,12 @@ module type Edge = sig
 end
 
 module type S = sig
+
+  (* value type *)
+  module Value : Value.S
+  type value = Value.v
 (* Atoms *)
-  include Atom.S
+  include Atom.S with type atom_value = value
 
 (* Page table entry *)
   module PteVal : PteVal_gen.S with type pte_atom = atom
@@ -73,6 +77,6 @@ module type S = sig
   val sequence_dp : dp -> dp -> dp list
 
 (* Read-Modify-Write *)
-  include Rmw.S with type rmw_atom = atom
+  include Rmw.S with type rmw_atom = atom and type rmw_value = value
 
 end
