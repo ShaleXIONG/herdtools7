@@ -15,6 +15,7 @@
 (****************************************************************************)
 
 module type S = sig
+  (* `pte_atom` is a type often passed in, matching Atom.atom *)
   type pte_atom
   type t
   val pp : t -> string

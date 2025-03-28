@@ -33,14 +33,14 @@ module type S = sig
   module SIMD : Atom.SIMD
 
   type atom
-  module PteVal : PteVal_gen.S with type pte_atom = atom
+  module PteVal : PteVal_gen.S
+  module Value : Value.S
   type rmw
-  type value
 
   val pp_atom : atom -> string
-  val tr_value : atom option -> value -> value
-  val overwrite_value : value -> atom option -> value -> value
-  val extract_value : value -> atom option -> value
+  val tr_value : atom option -> Value.v -> Value.v
+  val overwrite_value : Value.v -> atom option -> Value.v -> Value.v
+  val extract_value : Value.v -> atom option -> Value.v
   val set_pteval :
     atom option -> PteVal.t -> (unit -> string) -> PteVal.t
   val merge_atoms : atom -> atom -> atom option
@@ -69,7 +69,7 @@ module type S = sig
   val is_node : tedge -> bool
   val is_insert_store : tedge -> bool
   val is_non_pseudo : tedge -> bool
-  val compute_rmw : rmw -> value -> value -> value
+  val compute_rmw : rmw -> Value.v -> Value.v -> Value.v
 
   type edge = { edge: tedge;  a1:atom option; a2: atom option; }
 
@@ -170,8 +170,8 @@ with
 type fence = F.fence
 and type dp = F.dp
 and module SIMD = F.SIMD
-and type atom = F.atom
-and type value = F.value
+and type atom = F.concrete_atom
+and module Value = F.Value
 and module PteVal = F.PteVal
 and type rmw = F.rmw = struct
   let ()  = ignore (Cfg.naturalsize)
@@ -188,19 +188,20 @@ and type rmw = F.rmw = struct
   type dp = F.dp
 
   module SIMD = F.SIMD
+  module PteVal = F.PteVal
+  module Value = F.Value
+
 
   type atom = F.atom
   type rmw = F.rmw
-  type value = F.value
 
   let compute_rmw = F.compute_rmw
-
-  module PteVal = F.PteVal
 
   let pp_atom = F.pp_atom
   let tr_value = F.tr_value
   let overwrite_value = F.overwrite_value
   let extract_value = F.extract_value
+
   let set_pteval ao p = match ao with
   | None -> fun _ -> p
   | Some a -> F.PteVal.set_pteval a p

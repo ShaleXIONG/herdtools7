@@ -27,7 +27,7 @@ module Make
       val moreedges : bool
       val fullmixed : bool
       val variant : Variant_gen.t -> bool
-    end)(Value:Value.S) = struct
+    end) = struct
 
 let do_self = C.variant Variant_gen.Self
 let do_tag = C.variant Variant_gen.MemTag
@@ -50,13 +50,6 @@ let tr_endian = Misc.identity
 
 module ScopeGen = ScopeGen.NoGen
 
-(* Mixed size *)
-module Mixed =
-  MachMixed.Make
-    (struct
-      let naturalsize = Some C.naturalsize
-      let fullmixed = C.fullmixed
-    end)(Value)
 
 (* AArch64 has more atoms that others *)
 let bellatom = false
@@ -209,6 +202,61 @@ type atom_acc =
 let  plain = Plain None
 
 type atom = atom_acc * MachMixed.t option
+type concrete_atom = atom
+
+(* Page table entries *)
+module PteVal = struct
+
+  type pte_atom = atom
+
+  type t = AArch64PteVal.t
+
+  let pp = AArch64PteVal.pp_v
+
+  let default = AArch64PteVal.default
+
+  let compare = AArch64PteVal.compare
+
+  let do_setpteval a f p loc =
+    let open AArch64PteVal in
+    let fs = match f with
+      | Set f|SetRel f -> f
+      | Read|ReadAcq|ReadAcqPc ->
+(*
+         Warn.user_error "Atom %s is not a pteval write" (pp_atom a) in
+*)
+         Warn.user_error "Atom is not a pteval write" in
+    WPTESet.fold
+      (fun f p ->
+        let open WPTE in
+        match f with
+        | AF -> { p with af = 1-p.af; }
+        | DB -> { p with db = 1-p.db; }
+        | DBM -> { p with dbm = 1-p.dbm; }
+        | VALID -> { p with valid = 1-p.valid; }
+        | OA -> { p with oa=OutputAddress.PHY (loc ()); })
+    fs p
+
+  let set_pteval a p =
+    match a with
+    | Pte f,None -> do_setpteval a f p
+(*
+    | _ -> Warn.user_error "Atom %s is not a pteval write" (pp_atom a)
+*)
+    | _ -> Warn.user_error "Atom is not a pteval write"
+end
+
+module Value = Value.Make(PteVal)
+type atom_value = Value.v
+type rmw_value = Value.v
+
+(* Mixed size *)
+module Mixed =
+  MachMixed.Make
+    (struct
+      let naturalsize = Some C.naturalsize
+      let fullmixed = C.fullmixed
+    end)(Value)
 
 let default_atom = Atomic PP,None
 let instr_atom = Some (Instr,None)
@@ -554,41 +602,6 @@ let overwrite_value v ao w = match ao with
      ValsMixed.extract_value v sz o
   | Some ((Pte _|Pair _|Instr),Some _) -> assert false
 
-(* Page table entries *)
-  module PteVal = struct
-
-    type pte_atom = atom
-
-    type t = AArch64PteVal.t
-
-    let pp = AArch64PteVal.pp_v
-
-    let default = AArch64PteVal.default
-
-    let compare = AArch64PteVal.compare
-
-    let do_setpteval a f p loc =
-      let open AArch64PteVal in
-      let fs = match f with
-        | Set f|SetRel f -> f
-        | Read|ReadAcq|ReadAcqPc ->
-           Warn.user_error "Atom %s is not a pteval write" (pp_atom a) in
-      WPTESet.fold
-        (fun f p ->
-          let open WPTE in
-          match f with
-          | AF -> { p with af = 1-p.af; }
-          | DB -> { p with db = 1-p.db; }
-          | DBM -> { p with dbm = 1-p.dbm; }
-          | VALID -> { p with valid = 1-p.valid; }
-          | OA -> { p with oa=OutputAddress.PHY (loc ()); })
-      fs p
-
-    let set_pteval a p =
-      match a with
-      | Pte f,None -> do_setpteval a f p
-      | _ -> Warn.user_error "Atom %s is not a pteval write" (pp_atom a)
-  end
 
 (* Wide accesses *)
 

@@ -16,6 +16,9 @@
 
 (* Do nothing for mixed values, which should not appear *)
 val fold_mixed : ('a -> 'b -> 'b) -> 'b -> 'b
-val tr_value : 'a option -> Code.v -> Code.v
-val overwrite_value : Code. v -> 'a option -> Code.v -> Code.v
-val extract_value : Code. v -> 'a option -> Code.v
+(* 'a  is atom and 'b is value. However since the actual implementation
+   is type-independent, here they following functions are declared in
+   a general form.*)
+val tr_value : 'a option -> 'b -> 'b
+val overwrite_value : 'b -> 'a option -> 'b -> 'b
+val extract_value :'b -> 'a option -> 'b

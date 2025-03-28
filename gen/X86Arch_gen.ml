@@ -24,7 +24,8 @@ let bellatom = false
 
 module SIMD = NoSIMD
 
-type atom = Atomic
+type concrete_atom = Atomic
+type atom = concrete_atom
 
 let default_atom = Atomic
 let instr_atom = None
@@ -58,11 +59,14 @@ let varatom_dir _d f = f None
 
 let atom_to_bank _ = Code.Ord
 
+module PteVal = PteVal_gen.No(struct type arch_atom = atom end)
+module Value = Value.Make(PteVal)
+type value = Value.v
+type atom_value = Value.v
+
 include NoMixed
 include NoWide
 
-module PteVal = PteVal_gen.No(struct type arch_atom = atom end)
-module Value = Value.Make(PteVal)
 
 (**********)
 (* Fences *)

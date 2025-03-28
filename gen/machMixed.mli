@@ -26,9 +26,7 @@ val equal : t -> t -> bool
 
 val overlap : t -> t -> bool
 
-module Make :
-  functor (C:Config) ->
-  functor (Value:Value.S) ->
+module Make : functor (C:Config)(Value:Value.S) ->
   sig
 
     val pp_mixed : t -> string
@@ -43,9 +41,7 @@ module type ValsConfig = sig
   val endian : Endian.t
 end
 
-module Vals :
-  functor(C:ValsConfig) ->
-  functor (Value:Value.S) ->
+module Vals : functor (C:ValsConfig)(Value:Value.S) ->
   sig
     val overwrite_value :
       Value.v (* old *) -> MachSize.sz -> offset -> Value.v (* write *) -> Value.v

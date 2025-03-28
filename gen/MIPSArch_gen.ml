@@ -18,7 +18,7 @@ module Config = struct
   let moreedges = false
 end
 
-module Make(C:sig val moreedges : bool end)(Value:Value.S) = struct
+module Make(C:sig val moreedges : bool end) = struct
 include MIPSBase
 module ScopeGen = ScopeGen.NoGen
 
@@ -33,7 +33,7 @@ include MachAtom.Make
       let naturalsize=None
       let endian = endian
       let fullmixed = C.moreedges
-    end)(Value)
+    end)
 
 (**********)
 (* Fences *)

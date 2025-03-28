@@ -59,7 +59,7 @@ module Make(C:Config)(Value:Value.S) = struct
     let r = do_fold f S128 (get_off S128) r in
     r
 
-  let tr_value sz v = 
+  let tr_value sz v =
     let v = Value.value_to_int v in
     let rec do_rec sz v = match sz with
       | Byte -> v
@@ -94,8 +94,8 @@ module Vals(C:ValsConfig)(Value:Value.S) = struct
         no
 
   let overwrite_value v sz o w  =
-    let v = Value.value_to_int v in 
-    let w = Value.value_to_int w in 
+    let v = Value.value_to_int v in
+    let w = Value.value_to_int w in
     let new_value = if sz = C.naturalsize () then w
     else
       let o = correct_offset sz o in
@@ -107,7 +107,7 @@ module Vals(C:ValsConfig)(Value:Value.S) = struct
     Value.value_of_int new_value
 
   let extract_value v sz o =
-    let v = Value.value_to_int v in 
+    let v = Value.value_to_int v in
     let sz_bits =  MachSize.nbits sz in
     let o = correct_offset sz o in
     let nshift =  o * 8 in

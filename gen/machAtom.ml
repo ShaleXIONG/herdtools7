@@ -19,20 +19,26 @@ module type Config = sig
   val naturalsize : MachSize.sz option
   val endian : Endian.t
   val fullmixed : bool
+  val fullmixed : bool
 end
 
-module Make(C:Config)(Value:Value.S) = struct
+module Make(C:Config) = struct
+
+  type hidden_atom = Atomic | Reserve | Mixed of MachMixed.t
+  type concrete_atom = hidden_atom
+  type atom = hidden_atom
+
+  module PteVal = PteVal_gen.No(struct type arch_atom = hidden_atom end)
+  module Value = Value.Make(PteVal)
+
+  type atom_value = Value.v
 
   module Mixed = MachMixed.Make(C)(Value)
 
   let bellatom = false
 
   module SIMD = NoSIMD
-  module Value = Value
 
-  type hidden_atom = Atomic | Reserve | Mixed of MachMixed.t
-  type atom = hidden_atom
-  type atom_value = Value.v
 
   let default_atom = Atomic
   let instr_atom = None
@@ -64,8 +70,8 @@ module Make(C:Config)(Value:Value.S) = struct
     Some
       (match a with
        | None|Some (Mixed _) -> Mixed sz
-       | Some (Atomic|Reserve as a) -> a) 
-               
+       | Some (Atomic|Reserve as a) -> a)
+
   let fold_mixed f r = Mixed.fold_mixed (fun mix r -> f (Mixed mix) r) r
   let fold_non_mixed f r =  f Reserve (f Atomic r)
 

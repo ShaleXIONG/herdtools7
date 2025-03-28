@@ -19,13 +19,15 @@ module type Config = sig
   val naturalsize : MachSize.sz option
   val endian : Endian.t
   val fullmixed : bool
+(* TODO WHY arch_atom *)
+(*   type arch_atom *)
 end
 
 
 module Make : functor (C:Config) ->
   sig
     type hidden_atom = Atomic | Reserve | Mixed of MachMixed.t
-    module PteVal: PteVal_gen.S
-    module Value:Value.S
+    module PteVal:PteVal_gen.S with type pte_atom = hidden_atom
+    module Value:Value.S with type pte_value = PteVal.t
     include Atom.S with type atom = hidden_atom and type atom_value = Value.v
   end

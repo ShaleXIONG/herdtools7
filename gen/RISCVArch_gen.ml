@@ -20,7 +20,7 @@ module Config = struct
 end
 
 module Make
- (C:sig val naturalsize : MachSize.sz val moreedges : bool end)(Value:Value.S) = struct
+ (C:sig val naturalsize : MachSize.sz val moreedges : bool end) = struct
 
    include RISCVBase
 
@@ -29,6 +29,11 @@ module Make
 
 (* No Scope *)
    module ScopeGen = ScopeGen.NoGen
+
+   type atom = MO of mo | Atomic of mo * mo | Mixed of MachMixed.t
+
+   module PteVal = PteVal_gen.No(struct type arch_atom = atom end)
+   module Value = Value.Make(PteVal)
 
 (* Mixed size *)
    module Mixed =
@@ -47,8 +52,6 @@ module Make
    let bellatom = false
 
    module SIMD = NoSIMD
-
-   type atom = MO of mo | Atomic of mo * mo | Mixed of MachMixed.t
 
    let default_atom = Atomic (Rlx,Rlx)
    let instr_atom = None
@@ -155,7 +158,6 @@ module Make
    | Some (Mixed (sz,o)) ->
        ValsMixed.extract_value v sz o
 
-   module PteVal = PteVal_gen.No(struct type arch_atom = atom end)
 
 (* End of atoms *)
 

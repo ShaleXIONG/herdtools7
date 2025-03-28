@@ -19,16 +19,26 @@ module Config = struct
   let fullmixed = true
 end
 
+(* TODO looks like we have enough infor to assemble Value *)
 module Make
     (C:sig
       val naturalsize : MachSize.sz
       val fullmixed : bool
-    end)(Value:Value.S) = struct
+    end) = struct
 
       open Printf
 
       include X86_64Base
       let tr_endian = Misc.identity
+
+      type atom_acc = Plain | Atomic | NonTemporal
+      type concrete_atom = atom_acc * MachMixed.t option
+      type atom = concrete_atom
+
+      module PteVal = PteVal_gen.No(struct type arch_atom = atom end)
+      module Value = Value.Make(PteVal)
+
+      type atom_value = Value.v
 
       module ScopeGen = ScopeGen.NoGen
       module Mixed =
@@ -42,9 +52,6 @@ module Make
 
       module SIMD = NoSIMD
 
-      type atom_acc = Plain | Atomic | NonTemporal
-
-      type atom = atom_acc * MachMixed.t option
 
       let default_atom = Atomic,None
       let instr_atom = None
@@ -136,6 +143,7 @@ module Make
       | Some ((NonTemporal|Plain|Atomic), Some (sz, _)) ->
          Mixed.tr_value sz v
 
+
       module ValsMixed =
         MachMixed.Vals
           (struct
@@ -155,7 +163,6 @@ module Make
 
       include NoWide
 
-      module PteVal = PteVal_gen.No(struct type arch_atom = atom end)
 
       (**********)
       (* Fences *)
@@ -240,6 +247,7 @@ module Make
       (* RWM *)
       (*******)
 
+      (* it is very annoy here as it need Value.v *)
       include Exch.Exch(struct type arch_atom = atom type value = Value.v end)
       include NoEdge
 

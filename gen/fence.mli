@@ -27,13 +27,19 @@ end
 module type S = sig
 
   (* value type *)
-  module Value : Value.S
-  type value = Value.v
-(* Atoms *)
-  include Atom.S with type atom_value = value
+  type concrete_atom
+  module PteVal:PteVal_gen.S with type pte_atom = concrete_atom
+  module Value:Value.S
+  (* Atoms *)
+  include Atom.S with type atom_value = Value.v and type atom = concrete_atom
 
+(* TODO cycular dependencies:
+  - PteVal_gen relies `atom` which comes from Atom.S
+  - Atom.S needs a `value` type from Value.v
+  - Value need PteVal_gen to be a concrete type
+  TODO fold verything into atom since it is always include.
+*)
 (* Page table entry *)
-  module PteVal : PteVal_gen.S with type pte_atom = atom
 
 (* Fences *)
   type fence
@@ -77,6 +83,6 @@ module type S = sig
   val sequence_dp : dp -> dp -> dp list
 
 (* Read-Modify-Write *)
-  include Rmw.S with type rmw_atom = atom and type rmw_value = value
+  include Rmw.S with type rmw_atom = atom and type rmw_value = Value.v
 
 end

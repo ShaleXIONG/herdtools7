@@ -16,7 +16,7 @@
 
 (** Signature of Rmw helper modules *)
 
-module type S = 
+module type S =
   sig
   type rmw
   type rmw_atom

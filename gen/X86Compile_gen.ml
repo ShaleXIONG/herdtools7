@@ -112,7 +112,7 @@ struct
 
   let emit_joker st init = None,init,[],st
 
-  let emit_access st _p init e = 
+  let emit_access st _p init e =
   (* collapse the value `v` in event `e` to integer *)
   let value = Code.value_to_int e.C.v in
   match e.C.dir,e.C.loc with

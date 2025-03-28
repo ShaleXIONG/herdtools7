@@ -15,14 +15,14 @@
 (****************************************************************************)
 
 module type SIMD = sig
-    type atom
-    val nregs : atom -> int
-    val pp : atom -> string
+  type atom
+  val nregs : atom -> int
+  val pp : atom -> string
 
-    val initial : int -> int array
-    val step : atom -> int -> int array -> int array
-    val read : atom -> int array -> int list list
-    val reduce: int list list -> int
+  val initial : int -> int array
+  val step : atom -> int -> int array -> int array
+  val read : atom -> int array -> int list list
+  val reduce: int list list -> int
 end
 
 module type S = sig
@@ -31,7 +31,9 @@ module type S = sig
 (* SIMD writes and reads *)
   module SIMD : SIMD
 
+  (* `atom` type is passed in as it is backend-dependent *)
   type atom
+  (* `atom_value` type is passed in as it is backend-dependent *)
   type atom_value
   val default_atom : atom
   val instr_atom : atom option

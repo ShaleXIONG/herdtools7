@@ -33,6 +33,9 @@ module type I = sig
   val pp_i : int -> string
 end
 
+(*
+module type S = functor(PteVal_gen:PteVal_gen.S) -> sig
+*)
 module type S = sig
   type arch_reg
 
@@ -53,6 +56,10 @@ module type S = sig
   module LocMap : MyMap.S with type key = location
 
 (* Initial states *)
+  (* TODO change to PTEVAL_GEN *)
+(*
+  type initval = S of string | P of PteVal_gen.t
+*)
   type initval = S of string | P of AArch64PteVal.t
   val pp_initval : initval -> string
   val initval_eq : initval -> initval -> bool
