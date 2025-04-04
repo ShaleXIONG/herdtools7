@@ -183,7 +183,7 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
                  | [] -> assert false
                  | v0::_ -> v0 in
                 let vec = v0
-                 |> List.map Code.value_to_int 
+                 |> List.map Code.value_to_int
                  |> Code.add_vector O.hexa in
                 Some (S vec)
             | Code.Tag ->
@@ -204,7 +204,7 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
              | Code.VecReg _ ->
                 begin match evt.C.C.vecreg with
                 | _::vs ->
-                   List.map (fun v -> S 
+                   List.map (fun v -> S
                    ( v |> List.map Code.value_to_int
                      |> Code.add_vector O.hexa ) ) vs
                 | _ -> assert false
