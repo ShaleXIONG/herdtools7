@@ -24,9 +24,10 @@ end
 
 module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
   sig
+    module Value: Value.S
 (* Coherence utilities *)
     type cos0 =  (string * (C.C.node * IntSet.t) list list) list
-    type cos = (string * (Code.v array * IntSet.t) list list) list
+    type cos = (string * (Value.v array * IntSet.t) list list) list
     val pp_coherence : cos0 -> unit
     val last_map : cos0 -> C.C.event StringMap.t
     val compute_cos : cos0 ->  cos
@@ -43,19 +44,21 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
     val find_next_pte_write : C.C.node -> C.C.node option
     val check_here : C.C.node -> bool
     val do_poll : C.C.node -> bool
-    val fetch_val : C.C.node -> Code.v
+    val fetch_val : C.C.node -> Value.v
   end =
   functor (O:Config) -> functor (C:ArchRun.S) ->
   struct
 
+    module Value = C.C.Value
+
     type cos0 =  (string * (C.C.node * IntSet.t) list list) list
-    type cos = (string * (Code.v array * IntSet.t) list list) list
+    type cos = (string * (Value.v array * IntSet.t) list list) list
 
     open Printf
     open Code
 
     let pp_v v =
-      let v = Code.value_to_int v in
+      let v = Value.value_to_int v in
       if O.hexa then sprintf "0x%x" v
       else sprintf "%i" v
 
@@ -283,7 +286,7 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
       with Not_found -> None
 
     (* TODO check if the initial should be change to None? *)
-    let is_load_init e = e.C.C.dir = Some R && e.C.C.v = Code.value_of_int 0
+    let is_load_init e = e.C.C.dir = Some R && e.C.C.v = Value.value_of_int 0
 
     let check_edge = function
       | C.E.Ws Ext
@@ -305,7 +308,7 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
 (* Poll for value is possible *)
     (* TODO is this simple lift from 2,1,0 to Plain * correct *)
     let do_poll n =
-      match O.poll,n.C.C.prev.C.C.edge.C.E.edge,(Code.value_to_int n.C.C.evt.C.C.v) with
+      match O.poll,n.C.C.prev.C.C.edge.C.E.edge,(Value.value_to_int n.C.C.evt.C.C.v) with
       | true,
         (C.E.Rf Ext|C.E.Leave CRf|C.E.Back CRf),1 -> true
       | _,_,_ -> false
@@ -317,5 +320,5 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
       | C.E.Rf _-> 2
       | C.E.Fr _ -> 1
       | _ -> 0 in
-      Code.value_of_int number
+      Value.value_of_int number
   end

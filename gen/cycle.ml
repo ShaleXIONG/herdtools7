@@ -107,7 +107,7 @@ module type S = sig
   val finish : node -> (string * Value.v) list
 
 (* Composition of the two more basic steps above *)
-  val make : edge list -> edge list * node * (string * Value.v) list
+  val make : edge list -> edge list * node * Value.env
 
 (* split cycle amoungst processors *)
   val split_procs : node -> node list list
@@ -119,7 +119,7 @@ module type S = sig
   val last_ptes : node -> (string * PteVal.t) list
 
 (* All locations *)
-  val get_globals : ?init:Code.env -> node -> string list
+  val get_globals : ?init:Value.env -> node -> string list
 
 (* All (modified) code labels *)
   val get_labels : node -> string list
@@ -155,7 +155,9 @@ module Make (O:Config) (E:Edge.S) :
   type fence = E.fence
   type edge = E.edge
   module SIMD = E.SIMD
+(*
   type pte_atom = E.atom
+*)
   type atom = E.atom
   module PteVal = E.PteVal
   module Value = E.Value
