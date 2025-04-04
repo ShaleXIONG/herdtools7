@@ -22,12 +22,15 @@ module type S = sig
   type edge
   module SIMD : Atom.SIMD
   type atom
+(*
   module PteVal : PteVal_gen.S with type pte_atom = atom
+*)
+  module PteVal : PteVal_gen.S
   module Value : Value.S
 
   (* TODO can be parametric by dir *)
   type event =
-      { loc : loc ; ord : int; 
+      { loc : loc ; ord : int;
         (* TODO morello related value, fold into value *)
         tag : int ;
         ctag : int; cseal : int; dep : int ;
@@ -104,7 +107,7 @@ module type S = sig
   val finish : node -> (string * Value.v) list
 
 (* Composition of the two more basic steps above *)
-  val make : edge list -> edge list * node * Code.env
+  val make : edge list -> edge list * node * (string * Value.v) list
 
 (* split cycle amoungst processors *)
   val split_procs : node -> node list list
@@ -139,6 +142,7 @@ module Make (O:Config) (E:Edge.S) :
        and module SIMD = E.SIMD
        and type atom = E.atom
        and module PteVal = E.PteVal
+       and module Value = E.Value
   = struct
   let dbg = false
   let do_memtag = O.variant Variant_gen.MemTag
@@ -151,9 +155,13 @@ module Make (O:Config) (E:Edge.S) :
   type fence = E.fence
   type edge = E.edge
   module SIMD = E.SIMD
+  type pte_atom = E.atom
   type atom = E.atom
   module PteVal = E.PteVal
+  module Value = E.Value
+(*
   module Value = Value.Make(PteVal)
+*)
 
   type event =
       { loc : loc ; ord : int; tag : int;

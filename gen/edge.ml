@@ -170,7 +170,7 @@ with
 type fence = F.fence
 and type dp = F.dp
 and module SIMD = F.SIMD
-and type atom = F.concrete_atom
+and type atom = F.atom
 and module Value = F.Value
 and module PteVal = F.PteVal
 and type rmw = F.rmw = struct

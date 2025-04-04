@@ -34,6 +34,7 @@ include MachAtom.Make
       let endian = endian
       let fullmixed = C.moreedges
     end)
+type concrete_atom = atom
 
 (**********)
 (* Fences *)

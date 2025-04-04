@@ -27,7 +27,7 @@ module type Config = sig
   val variant : Variant_gen.t -> bool
 end
 
-module Make(O:Config)(Value:Value.S) = struct
+module Make(O:Config) = struct
 
 include BellBase
 
@@ -212,6 +212,9 @@ include NoWide
 (* End of atoms *)
 
 module PteVal = PteVal_gen.No(struct type arch_atom = atom end)
+module Value = Value.Make(PteVal)
+type concrete_atom = atom
+type atom_value = Value.v
 
 (**********)
 (* Fences *)

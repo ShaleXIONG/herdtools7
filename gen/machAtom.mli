@@ -28,6 +28,9 @@ module Make : functor (C:Config) ->
   sig
     type hidden_atom = Atomic | Reserve | Mixed of MachMixed.t
     module PteVal:PteVal_gen.S with type pte_atom = hidden_atom
+(*
     module Value:Value.S with type pte_value = PteVal.t
+*)
+    module Value:Value.S
     include Atom.S with type atom = hidden_atom and type atom_value = Value.v
   end

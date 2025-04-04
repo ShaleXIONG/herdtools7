@@ -43,6 +43,9 @@ module Make
          let fullmixed = C.moreedges
        end)(Value)
 
+   type concrete_atom = atom
+   type atom_value = Value.v
+
    include NoWide
 
 (*********)
@@ -178,7 +181,7 @@ module Make
 
    let do_fold_fence f = add_iorw do_fold_fence f
    and fold_barrier f = add_iorw fold_barrier f
-   
+
    let fold_cumul_fences f k = do_fold_fence f k
    let fold_all_fences f k = fold_barrier f k
    let fold_some_fences = fold_all_fences

@@ -68,6 +68,10 @@ include NoMixed
 include NoWide
 
 module PteVal = PteVal_gen.No(struct type arch_atom = atom end)
+module Value = Value.Make(PteVal)
+type atom_value = Value.v
+type rmw_value = Value.v
+type concrete_atom = atom
 
 (* Fences, to be completed *)
 
@@ -270,11 +274,11 @@ let applies_atom_rmw _ ar aw = match ar,aw with
 let show_rmw_reg _ = true
 
 let compute_rmw rmw old co =
-  let old = Code.value_to_int old in
-  let co = Code.value_to_int co in
+  let old = Value.value_to_int old in
+  let co = Value.value_to_int co in
   let new_value = match rmw with
   | Exch -> co
   | Add -> old+co in
-  Code.value_of_int new_value
+  Value.value_of_int new_value
 
 include NoEdge
