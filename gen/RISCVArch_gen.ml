@@ -64,6 +64,7 @@ module Make
        end
    | Atomic _|Mixed _ -> true
    let is_ifetch _ = false
+   let is_pte_physical _ = false
    let pp_plain = "P"
 
    let pp_as_a = None

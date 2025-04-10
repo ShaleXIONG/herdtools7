@@ -40,7 +40,10 @@ module Make(C:Config) = struct
   let applies_atom a d = match a,d with
   | Reserve,W -> false
   | _,_ -> true
+
   let is_ifetch _ = false
+
+  let is_pte_physical _ = false
 
   let pp_plain = Code.plain
   let pp_as_a = None

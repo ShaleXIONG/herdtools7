@@ -44,6 +44,7 @@ module type S = sig
     atom option -> PteVal.t -> (unit -> string) -> PteVal.t
   val merge_atoms : atom -> atom -> atom option
   val is_ifetch : atom option -> bool
+  val is_pte_physical : atom option -> bool
   val atom_to_bank : atom option -> SIMD.atom Code.bank
   val strong : fence
   val pp_fence : fence -> string
@@ -208,6 +209,7 @@ and type rmw = F.rmw = struct
 
   let merge_atoms = F.merge_atoms
   let is_ifetch = F.is_ifetch
+  let is_pte_physical = F.is_pte_physical
 
   let atom_to_bank = function
     | None -> Ord
