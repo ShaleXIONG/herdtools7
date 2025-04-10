@@ -470,6 +470,7 @@ let find_non_pseudo_prev m = find_edge_prev non_pseudo m
 
 module Env = Map.Make(String)
 
+(* TODO why the `next_x` is always `y` *)
 let locs,next_x =
   let t = Array.make 26 "" in
   t.(0) <- "x" ;
@@ -882,6 +883,13 @@ let set_same_loc st n0 =
       |(Ord|Tag|CapaTag|CapaSeal|VecReg _|Pair|Instr),Some W -> true
       |_ -> false ) ns
 
+  let exist_pte_oa_write ns =
+      List.exists
+      ( fun n -> let e = n.evt in
+      match e.bank,e.dir with
+      |Pte,Some W -> E.is_pte_physical e.atom
+      |_ -> false ) ns
+
   let exist_pte_value_write ns =
       List.exists
       ( fun n -> match n.evt.bank,n.evt.dir with
@@ -993,29 +1001,39 @@ let set_same_loc st n0 =
             (* TODO Rework here, esp the function `next_loc` and ref value `next_x_pred`.
               They are all difficult to understand. *)
               let next_x_pred = ref false in
+              let pte_oa = ref false in
               (* get the previous `pte_value` *)
               let pte_val = CoSt.get_pte_value st in
               (* update the pte value in kvm variant *)
               let pte_val =
                 if do_kvm then begin
-                    let next_loc () =
-                      match n.evt.loc with
-                      | Code.Data x ->
-                         begin try
-                             let m =
-                               find_node
-                                 (fun m ->
-                                   match m.evt.loc with
-                                   | Code.Data y ->
-                                      not (Misc.string_eq x y)
-                                   | _-> false) n in
-                             Code.as_data m.evt.loc
-                           with Not_found ->
-                             next_x_pred := true ; next_x end
-                      | Code.Code _ -> Warn.fatal "Code location has no pte value." in
-                    E.set_pteval n.evt.atom pte_val next_loc
-                  end else pte_val in
+                  (* Wrap by a function for lazy evaluation, i.e.,
+                     get a new loc only when necessary when manipulating
+                     physical address. *)
+                  let next_loc () =
+                    pte_oa := true;
+                    match n.evt.loc with
+                    | Code.Data x ->
+                      (* Find a location `y` of node `m` differs (forward search)
+                         from the current location `x` of node `n`. Otherwise, use
+                         pre-defined location `next_x` *)
+                      begin try
+                          let m =
+                            find_node
+                              (fun m ->
+                                match m.evt.loc with
+                                | Code.Data y ->
+                                   not (Misc.string_eq x y)
+                                | _-> false) n in
+                          Code.as_data m.evt.loc
+                        with Not_found ->
+                          next_x_pred := true ; next_x end
+                    | Code.Code _ -> Warn.fatal "Code location has no pte value." in
+                  (* END of `next_loc` *)
+                  E.set_pteval n.evt.atom pte_val next_loc
+                end else pte_val in
               let st = CoSt.set_pte_value st pte_val in
+              let check_value = if !pte_oa then Some true else check_value in
               n.evt <- { n.evt with pte = pte_val; check_value; } ;
               ((!next_x_pred || next_x_ok), st)
             end (* END of match bank *)
@@ -1054,7 +1072,7 @@ let set_same_loc st n0 =
               (* Since it is a cycle, the initial value of `check_value`
                  and `check_fault` depend on if there are write to
                  the variable and pte respectively. *)
-              let check_value = exist_plain_value_write ns in
+              let check_value = exist_plain_value_write ns || exist_pte_oa_write ns in
               let check_fault = exist_pte_value_write ns in
               let init_st = CoSt.create i sz pte_val check_value check_fault in
               let next_x_ok,_st = do_set_write_val false init_st ns in
@@ -1114,27 +1132,62 @@ let set_dep_v nss =
       n.evt <- { n.evt with dep=Code.value_to_int v; }) ;
   ()
 
+let find_init_value initvals loc =
+  try let (_,v) = List.find (fun (l,_) -> l = loc) initvals in v
+  with Not_found -> Warn.fatal "%s has no initial value." loc
+
+(* If in kvm mode hence with `PTE`, it is necessary to extract the value
+   from the aliasing physical address, from the variable `pte_value`
+   when the physical adrress does not align,
+   e.g. `PTE(x) = (OA(y))`. In the case of no write event for `y`,
+   the initial value of `y`, found in `initvals`, will be used. If there is no
+   alising, the default value `check_value` will be returned. *)
+let find_read_value n pte_value cell_value initvals =
+  match PteVal.as_virtual pte_value with
+  | None -> cell_value
+  | Some phy_address ->
+    if do_kvm && (Code.is_data n.evt.loc)
+        && phy_address != Code.as_data n.evt.loc then
+      try
+        let value_node = find_node ( fun cur ->
+          let cur_loc = cur.evt.loc in
+            (* If we find a node `cur` that matches target `phy_address`
+               and is a plain value write event *)
+            Code.is_data cur_loc
+            && phy_address = Code.as_data cur_loc
+            && ( match cur.evt.dir,cur.evt.bank with
+                | Some W, (Ord|Instr|Pair) -> true
+                |_,_ -> false )
+          ) n in
+        (* TODO should be the value from `value_node` *)
+        value_node.evt.v
+      (* If no previous node that modifies location `phy_address`,
+         then use the initial value for the location *)
+      with Not_found -> find_init_value initvals phy_address
+    else cell_value
+
 (* TODO: this is wrong for Store CR's: consider Rfi Store PosRR *)
-let set_read_individual_v n cell check_value =
+let set_read_individual_v n cell pte_value check_value initvals =
   let e = n.evt in
-  let v = E.extract_value cell.(0) e.atom in
-  (* eprintf "SET READ: loc=%s cell=0x%x, v=0x%x\n" (Code.pp_loc n.evt.loc) cell.(0) v ; *)
-  let e = { e with v=v; check_value } in
+  let cell_value = E.extract_value cell.(0) e.atom in
+  let v = find_read_value n pte_value cell_value initvals in
+  let e = { e with v; check_value } in
   n.evt <- e
   (* eprintf "AFTER %a\n" debug_node n *)
 
-let set_read_pair_v n cell check_value =
+let set_read_pair_v n cell pte_value check_value initvals =
   let e = n.evt in
   let v0 = E.extract_value cell.(0) e.atom |> Code.value_to_int
   and v1 =  E.extract_value cell.(1) e.atom |> Code.value_to_int in
-  let v = v0 + v1 |> Code.value_of_int in
-  let e = { e with v=v; check_value } in
+  let cell_value = v0 + v1 |> Code.value_of_int in
+  let v = find_read_value n pte_value cell_value initvals in
+  let e = { e with v; check_value } in
   n.evt <- e
 
 (* Assume all the events are for the same location,
    convert the node list, i.e., the first unnamed parameter,
    to the final value `cell` and PTE value `pte_cell` *)
-let do_set_read_v =
+let do_set_read_v initvals =
   let do_rec st ns =
     (* `st` keeps track of tags and current state of memory,
        - plain value => CoSt.get_cell, CoSt.set_cell,
@@ -1143,6 +1196,7 @@ let do_set_read_v =
       let st = if n.store == nil then st else CoSt.set_cell st n.store.evt.cell in
       let cell = CoSt.get_cell st in
       let bank = n.evt.bank in
+      let pte = CoSt.get_pte_value st in
       begin match n.evt.dir with
       (* Assign the read value according to `cell` and `pte_cell` *)
       | Some R ->
@@ -1151,19 +1205,19 @@ let do_set_read_v =
         let check_value = Some (CoSt.get_check_value st) in
         begin match bank with
         | Ord | Instr->
-          set_read_individual_v n cell check_value
+          set_read_individual_v n cell pte check_value initvals
         | Pair ->
-          set_read_pair_v n cell check_value
+          set_read_pair_v n cell pte check_value initvals
         | VecReg a ->
           let cell = Array.map Code.value_to_int cell in
           let v = E.SIMD.read a cell
                    |> E.SIMD.reduce
                    |> Code.value_of_int in
-          n.evt <- { n.evt with v=v ; vecreg=[]; bank=Ord; check_value; }
+          n.evt <- { n.evt with v ; vecreg=[]; bank=Ord; check_value; }
         | Tag|CapaTag|CapaSeal ->
           n.evt <- { n.evt with v = CoSt.get_co st bank; check_value; }
         | Pte ->
-          n.evt <- { n.evt with pte = CoSt.get_pte_value st; }
+          n.evt <- { n.evt with pte; }
         end ;
         (* Update if this memory load might fault *)
         let fault_update st =
@@ -1218,19 +1272,19 @@ let do_set_read_v =
     (* TODO only ONE call to `pte_val_init` is needed
        between `do_set_read_v` and `set_all_write_val` *)
     let pte_val = pte_val_init ns n.evt.loc in
-    let check_value = exist_plain_value_write ns in
+    let check_value = exist_plain_value_write ns || exist_pte_oa_write ns in
     let check_fault = exist_pte_value_write ns || exist_mem_tag_write ns in
     (* TODO: `co_cell` in `st` and indivudal `cell` seem overlap functionality. *)
     let init_st = CoSt.create 0 sz pte_val check_value check_fault in
     let final_st = do_rec init_st ns in
     (CoSt.get_cell final_st).(0),CoSt.get_pte_value final_st
 
-let set_read_v nss =
+let set_read_v nss initvals =
   List.fold_right
     (fun ns k -> match ns with
     | [] -> k
     | n::_  ->
-        let vf = do_set_read_v ns in
+        let vf = do_set_read_v initvals ns in
         (n.evt.loc,vf)::k)
     nss []
 
@@ -1272,7 +1326,7 @@ let finish n =
     debug_cycle stderr n
   end ;
 (* Set load values *)
-  let vs = set_read_v by_loc in
+  let vs = set_read_v by_loc initvals in
 (* Set dependency values *)
   (if do_morello then set_dep_v by_loc) ;
   if O.verbose > 1 then begin

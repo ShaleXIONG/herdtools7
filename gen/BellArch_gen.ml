@@ -117,6 +117,7 @@ let applies_atom = match bi with
 | None -> (fun a _d -> match a with [] -> true | _ -> false)
 | Some bi -> (fun a d -> BellModel.check_event (tr_dir d) a bi)
 let is_ifetch _ = false
+let is_pte_physical _ = false
 let pp_plain = "P"
 let pp_as_a = None
 

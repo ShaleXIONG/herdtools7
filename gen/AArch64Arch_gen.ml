@@ -197,6 +197,10 @@ module WPTE = struct
      (* Avoid the use of `VA`, which often means virtual address *)
      | VALID -> "VALID"
      | OA -> "OA"
+
+   let is_oa = function
+     | OA -> true
+     | _ -> false
 end
 
 module WPTESet = MySet.Make(WPTE)
@@ -242,6 +246,12 @@ let applies_atom (a,_) d = match a,d with
 
 let is_ifetch a = match a with
 | Some (Instr,_) -> true
+| _ -> false
+
+let is_pte_physical = function
+| Some (Pte(Set(pte)|SetRel(pte)),_) ->
+    WPTESet.mem WPTE.OA pte
+| Some (Pte(SetOne(WPTE.OA)|SetZero(WPTE.OA)),_) -> true
 | _ -> false
 
    let pp_plain = "P"
@@ -651,7 +661,7 @@ let overwrite_value v ao w = match ao with
               else (af,db,dbm,Some true,{pteval with valid = value})
             else (af,db,dbm,Some (Option.value ~default:false valid),pteval)
           | OA ->
-                  Warn.user_error "PTESetOneOA and PTESetZeroOA is not supported."
+            Warn.user_error "PTESetOneOA and PTESetZeroOA is not supported."
         in (* END of helper function `update_pte` *)
         match atom_pte with
         | SetOne(field) -> update_pte acc field 0 |> toggle_pte_wrap (WPTESet.singleton field)
@@ -670,6 +680,7 @@ let overwrite_value v ao w = match ao with
         |> (if Option.value ~default:false dbm then WPTESet.add DBM else Fun.id)
         |> (if Option.value ~default:false valid then WPTESet.add VALID else Fun.id) in
       toggle_pte adjust_value pte_val loc_fun
+
     let as_virtual p = AArch64PteVal.as_virtual p
 
     let compare = AArch64PteVal.compare

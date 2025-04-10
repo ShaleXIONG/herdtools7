@@ -36,6 +36,7 @@ module type S = sig
   val instr_atom : atom option
   val applies_atom : atom -> Code.dir -> bool
   val is_ifetch : atom option -> bool
+  val is_pte_physical: atom option -> bool
   val compare_atom : atom -> atom -> int
   val get_access_atom : atom option -> MachMixed.t option
   val set_access_atom : atom option -> MachMixed.t -> atom option

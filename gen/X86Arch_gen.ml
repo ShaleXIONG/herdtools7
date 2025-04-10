@@ -33,6 +33,7 @@ let applies_atom a d = match a,d with
 | Atomic,W -> true
 | _,_ -> false
 let is_ifetch _ = false
+let is_pte_physical _ = false
 let compare_atom = compare
 
 include MachMixed.No
