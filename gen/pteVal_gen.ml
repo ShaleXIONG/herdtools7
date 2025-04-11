@@ -16,12 +16,25 @@
 
 module type S = sig
   type pte_atom
+  (* TODO change the name *)
   type t
+  (* TODO change the name *)
   val pp : t -> string
+  (* TODO change the name *)
   val default : string -> t
+  (* TODO change the name *)
   val compare : t -> t -> int
+  (* TODO change the name *)
   val set_pteval : pte_atom -> t -> (unit -> string) -> t
+  (* TODO change the name *)
   val can_fault : t -> bool
+
+  type v = NoValue | Plain of int | PteValue of t
+  val pp_v : ?hexa:bool -> v -> string
+  val no_value : v
+  val value_to_int : v -> int
+  val value_of_int : int -> v
+  val value_compare : v -> v -> int
 end
 
 module No(A:sig type arch_atom end) = struct
@@ -32,6 +45,28 @@ module No(A:sig type arch_atom end) = struct
   let compare _ _ = 0
   let set_pteval _ p _ = p
   let can_fault _t = false
+
+  type v = NoValue | Plain of int | PteValue of t
+  let value_to_int = function
+      | NoValue -> -1
+      | Plain v -> v
+      (* TODO change *)
+      | PteValue _ -> -1
+  let no_value = NoValue
+  let value_of_int v = Plain v
+  let value_compare lhs rhs =
+      match lhs, rhs with
+      | NoValue, NoValue -> 0
+      | NoValue, Plain _ -> -1
+      | Plain _, NoValue -> 1
+      | Plain lhs, Plain rhs -> Misc.int_compare lhs rhs
+      (* TODO change *)
+      | _ -> Warn.user_error "ERROR"
+
+  let pp_v ?(hexa=false) = function
+    | NoValue -> "**"
+    | Plain v -> Printf.sprintf (if hexa then "0x%x" else "%d") v
+    | PteValue p -> pp p
 end
 
 

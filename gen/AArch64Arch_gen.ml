@@ -567,6 +567,30 @@ let overwrite_value v ao w = match ao with
 
     let compare = AArch64PteVal.compare
 
+    (* TODO tide them to pteval_gen *)
+    (* TODO tide them to pteval_gen *)
+    (* TODO tide them to pteval_gen *)
+    type v = NoValue | Plain of int | PteValue of t
+    let value_to_int = function
+        | NoValue -> -1
+        | Plain v -> v
+    let no_value = NoValue
+    let value_of_int v = Plain v
+    let value_compare lhs rhs =
+        match lhs, rhs with
+        | NoValue, NoValue -> 0
+        | NoValue, Plain _ -> -1
+        | Plain _, NoValue -> 1
+        | Plain lhs, Plain rhs -> Misc.int_compare lhs rhs
+
+    let pp_v ?(hexa=false) = function
+      | NoValue -> "**"
+      | Plain v -> Printf.sprintf (if hexa then "0x%x" else "%d") v
+      | PteValue p -> pp p
+    (* TODO tide them to pteval_gen *)
+    (* TODO tide them to pteval_gen *)
+    (* TODO tide them to pteval_gen *)
+
     let do_setpteval a f p loc =
       let open AArch64PteVal in
       let fs = match f with
