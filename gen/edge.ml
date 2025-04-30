@@ -53,6 +53,7 @@ module type S = sig
   type tedge =
     | Rf of ie | Fr of ie | Ws of ie
     | Po of sd*extr*extr | Fenced of fence*sd*extr*extr
+    | Copy
     | Dp of dp*sd*extr
     | Leave of com (* Leave thread *)
     | Back  of com (* Return to thread *)
@@ -222,6 +223,9 @@ and type rmw = F.rmw = struct
   type tedge =
     | Rf of ie | Fr of ie | Ws of ie
     | Po of sd*extr*extr | Fenced of fence*sd*extr*extr
+    (* A special type RW which reads to a reg `X`
+       and write back the value in `X`, hence `Copy` *)
+    | Copy
     | Dp of dp*sd*extr
     | Leave of com
     | Back of com
@@ -235,23 +239,23 @@ and type rmw = F.rmw = struct
 
   let is_id = function
     | Id -> true
-    | Store|Insert _|Hat|Rmw _|Rf _|Fr _|Ws _|Po (_, _, _)
+    | Store|Insert _|Hat|Rmw _|Rf _|Fr _|Ws _|Po (_, _, _)|Copy
     | Fenced (_, _, _, _)|Dp (_, _, _)|Leave _|Back _|Node _ -> false
 
   let is_insert_store = function
     | Store|Insert _ -> true
-    | Id|Hat|Rmw _|Rf _|Fr _|Ws _|Po (_, _, _)
+    | Id|Hat|Rmw _|Rf _|Fr _|Ws _|Po (_, _, _)|Copy
     | Fenced (_, _, _, _)|Dp (_, _, _)|Leave _|Back _|Node _ -> false
 
   let is_node = function
     | Node _ -> true
-    | Id|Hat|Rmw _|Rf _|Fr _|Ws _|Po (_, _, _)
+    | Id|Hat|Rmw _|Rf _|Fr _|Ws _|Po (_, _, _)|Copy
     | Fenced (_, _, _, _)|Dp (_, _, _)|Leave _|Back _|Insert _
     | Store -> false
 
   let is_non_pseudo = function
     | Store|Insert _ |Id|Node _-> false
-    | Hat|Rmw _|Rf _|Fr _|Ws _|Po (_, _, _)
+    | Hat|Rmw _|Rf _|Fr _|Ws _|Po (_, _, _)|Copy
     | Fenced (_, _, _, _)|Dp (_, _, _)|Leave _|Back _ -> true
 
   type edge = { edge: tedge;  a1:atom option; a2: atom option; }
@@ -315,6 +319,7 @@ and type rmw = F.rmw = struct
     | Fr ie -> sprintf "Fr%s" (pp_ie ie)
     | Ws ie -> if compat then sprintf "Ws%s" (pp_ie ie) else sprintf "Co%s" (pp_ie ie)
     | Po (sd,e1,e2) -> sprintf "Po%s%s%s" (pp_sd sd) (pp_extr e1) (pp_extr e2)
+    | Copy -> "Copy"
     | Fenced (f,sd,e1,e2) ->
         sprintf "%s%s%s%s" (F.pp_fence f) (pp_sd sd) (pp_extr e1) (pp_extr e2)
     | Dp (dp,sd,e) -> sprintf "Dp%s%s%s"
@@ -387,7 +392,7 @@ let pp_dp_default tag sd e = sprintf "%s%s%s" tag (pp_sd sd) (pp_extr e)
   let do_dir_tgt e = match e with
   | Po(_,_,e)| Fenced(_,_,_,e)|Dp (_,_,e) -> e
   | Rf _| Hat -> Dir R
-  | Ws _|Fr _|Rmw _  -> Dir W
+  | Ws _|Fr _|Rmw _|Copy -> Dir W
   | Leave c|Back c -> do_dir_tgt_com c
   | Id -> not_that e "do_dir_tgt"
   | Insert _ -> NoDir
@@ -397,7 +402,7 @@ let pp_dp_default tag sd e = sprintf "%s%s%s" tag (pp_sd sd) (pp_extr e)
 
   and do_dir_src e = match e with
   | Po(_,e,_)| Fenced(_,_,e,_) -> e
-  | Dp _|Fr _|Hat|Rmw _ -> Dir R
+  | Dp _|Fr _|Hat|Rmw _|Copy -> Dir R
   | Ws _|Rf _ -> Dir W
   | Leave c|Back c -> do_dir_src_com c
   | Id -> not_that e "do_dir_src"
@@ -407,6 +412,7 @@ let pp_dp_default tag sd e = sprintf "%s%s%s" tag (pp_sd sd) (pp_extr e)
 
   let do_loc_sd e = match e with
   | Po (sd,_,_) | Fenced (_,sd,_,_) | Dp (_,sd,_) -> sd
+  | Copy -> Diff
   | Insert _|Store|Node _|Fr _|Ws _|Rf _|Hat|Rmw _|Id|Leave _|Back _ -> Same
 
   let do_is_diff e = match do_loc_sd e with
@@ -426,6 +432,7 @@ let fold_tedges f r =
   let r = fold_sd_extr_extr (fun sd e1 e2 r -> f (Po (sd,e1,e2)) r) r in
   let r = F.fold_all_fences (fun fe -> f (Insert fe)) r in
   let r = f Store r in
+  let r = f Copy r in
   let r =
     F.fold_all_fences
       (fun fe ->
@@ -690,13 +697,13 @@ let fold_tedges f r =
   | Po(sd,src,_) -> Po (sd,src,Dir d)
   | Fenced(f,sd,src,_) -> Fenced(f,sd,src,Dir d)
   | Dp (dp,sd,_) -> Dp (dp,sd,Dir d)
-  | Rf _ | Hat
+  | Rf _|Hat|Copy
   | Insert _|Store|Id|Node _|Ws _|Fr _|Rmw _|Leave _|Back _-> e
 
   and do_set_src d e = match e with
   | Po(sd,_,tgt) -> Po(sd,Dir d,tgt)
   | Fenced(f,sd,_,tgt) -> Fenced(f,sd,Dir d,tgt)
-  | Fr _|Hat|Dp _
+  | Fr _|Hat|Dp _|Copy
   | Insert _|Store|Id|Node _|Ws _|Rf _|Rmw _|Leave _|Back _ -> e
 
   let set_tgt d e = { e with edge = do_set_tgt d e.edge ; }
@@ -706,7 +713,7 @@ let fold_tedges f r =
   and is_diff e = do_is_diff e.edge
 
   let get_ie e = match e.edge with
-  | Id |Po _|Dp _|Fenced _|Rmw _ -> Int
+  | Id |Po _|Dp _|Fenced _|Rmw _|Copy -> Int
   | Rf ie|Fr ie|Ws ie -> ie
   | Leave _|Back _|Hat -> Ext
   | Insert _|Store|Node _ -> Int
@@ -776,7 +783,7 @@ let fold_tedges f r =
   let do_expand_edge e f =
     match e.edge with
     | Insert _|Store|Id|Node _|Rf _ | Fr _ | Ws _
-    | Hat |Rmw _|Dp _|Leave _|Back _
+    | Hat |Rmw _|Dp _|Leave _|Back _|Copy
       -> f e
     | Po(sd,e1,e2) ->
         expand_dir2 e1 e2 (fun d1 d2 -> f {e with edge=Po(sd,d1,d2);})

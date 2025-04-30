@@ -145,7 +145,7 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
           | Rf _ | Fr _ | Ws _ | Hat
           | Back _|Leave _ -> true
           | Rmw rmw -> C.A.show_rmw_reg rmw
-          | Po _ | Fenced _ | Dp _ ->
+          | Po _ | Fenced _ | Dp _|Copy ->
               begin match C.E.loc_sd e with
               | Code.Same -> true
               | Code.Diff -> false
