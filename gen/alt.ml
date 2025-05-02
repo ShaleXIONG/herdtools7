@@ -305,14 +305,14 @@ module Make(C:Builder.S)
         | _ -> true
         end
 
-    let pp_ess ess =
-      String.concat " "
-        (List.fold_right
-           (fun (_,es) ->
-             List.fold_right
-               (fun e k -> pp_edge e::k)
-               es)
-           ess [])
+    let pp_ess ?(simple_format=true) ess =
+      let list_sep,list_list_sep =
+        if simple_format then " ", " " else ", ", "+" in
+      ess |> List.map
+          ( fun (_,es) ->
+            es |> List.map (fun e -> pp_edge e)
+               |> String.concat list_list_sep )
+          |> String.concat list_sep
 
     let edges_ofs rs =
       List.map (fun r -> (r, edges_of r)) rs
@@ -390,12 +390,12 @@ module Make(C:Builder.S)
 
 
     let check_cycle rsuff rl =
-      let rsuff = List.map (fun (_,rr) -> rr) rsuff in
+      let _,rsuff = List.split rsuff in
       let rsuff = List.concat rsuff in
-      not (List.exists (fun rl ->  is_prefix rsuff rl) rl)
+      not (List.exists (fun rl -> is_prefix rsuff rl) rl)
 
 
-    let call_rec prefix f0 safes po_safe over n r suff f_rec k ?(reject=[])=
+    let call_rec_base prefix f0 safes po_safe over n r suff f_rec k ?(reject=[])=
       if
         can_precede safes po_safe r suff &&
         minprocs suff <= O.nprocs &&
@@ -412,10 +412,9 @@ module Make(C:Builder.S)
             can_prefix prefix (can_precede safes po_safe) suff
           then begin
             let tr =  prefix@suff in
-(*
+            if O.verbose > 2 then
             eprintf "TRY: '%s'\n"
               (C.E.pp_edges (List.flatten (List.map snd tr))) ;
-*)
             try f0 po_safe tr k
             with  Misc.Exit -> k
             | Misc.Fatal msg |Misc.UserError msg ->
@@ -468,7 +467,7 @@ module Make(C:Builder.S)
       | [] -> k
       | r0::rs -> (* Build simple cycles for relaxation r0 *)
 
-          let call_rec = call_rec prefix (f [fst r0]) aset po_safe ~reject:reject in
+          let call_rec = call_rec_base prefix (f [fst r0]) aset po_safe ~reject:reject in
 
 (* Add a safe edge to suffix *)
           let rec add_safe over ss n suf k =
@@ -500,7 +499,7 @@ module Make(C:Builder.S)
           RelaxSet.elements (RelaxSet.inter suff_set relax_set) in
 
         let call_rec =
-          call_rec prefix
+          call_rec_base prefix
             (fun po_safe suff k ->
               let rs = extract_relaxs suff in
               let nrs = List.length rs in
@@ -535,7 +534,7 @@ module Make(C:Builder.S)
 (* New relax that does not enforce the first edge to be a relax *)
 
 (* As a safety check, generate cycles with no relaxation *)
-      let call_rec = call_rec prefix (f []) aset po_safe ~reject:reject in
+      let call_rec = call_rec_base prefix (f []) aset po_safe ~reject:reject in
       let rec no_relax ss n suf k = match ss with
       | [] -> k
       | s::ss ->
