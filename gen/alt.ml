@@ -31,6 +31,7 @@ module type AltConfig = sig
   val variant : Variant_gen.t -> bool
   type fence
   val cumul : fence list Config.cumul
+  val same_loc : bool
 end
 
 module Make(C:Builder.S)
@@ -549,8 +550,6 @@ module Make(C:Builder.S)
         else choose_relax relax k
       (* END of overall `zyva` *)
 
-    let all_int l = List.for_all is_int l
-
     let count_e ce =
       List.fold_left ( fun ce e -> if is_int e then ce else ce + 1 ) ce
 
@@ -609,7 +608,7 @@ module Make(C:Builder.S)
                 (match O.choice with
                 | Default| Sc | Ppo | MixedCheck -> true
                 | Thin | Free | Uni | Critical | Transitive |Total -> false) &&
-                (count_ext le=1 || all_int le || count_changes le < 2) then k
+                (count_ext le=1 || ( not O.same_loc && count_changes le < 2 ) ) then k
               else begin
                   let ok = (* Check for rejected sequenes that span over cycle "cut" *)
                   let rej = (* Keep non-trivial edge sequences only *)
@@ -625,7 +624,7 @@ module Make(C:Builder.S)
                        List.fold_left (fun  k xs -> max k (List.length xs)) 0 rej in
                      let pss = Misc.cuts max_sz le in
                      not (substring_spanp rej pss) in
-                if ok then
+                if ok then begin
                   let mk_info _es =
                     let ss = build_safe rs res in
                     let info =
@@ -635,6 +634,7 @@ module Make(C:Builder.S)
                       ] in
                     info,C.R.Set.of_list rs in
                   f le mk_info D.no_name D.no_scope k
+                end
                 else k
               end
             with (Normaliser.CannotNormalise _) -> k
