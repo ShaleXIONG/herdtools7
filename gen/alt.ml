@@ -411,10 +411,10 @@ module Make(C:Builder.S)
             (n = 0 || (n > 0 && O.upto)) &&
             can_prefix prefix (can_precede safes po_safe) suff
           then begin
-            let tr =  prefix@suff in
+            let tr = prefix@suff in
             if O.verbose > 2 then
-            eprintf "TRY: '%s'\n"
-              (C.E.pp_edges (List.flatten (List.map snd tr))) ;
+              eprintf "TRY: '%s'\n"
+                (C.E.pp_edges (List.flatten (List.map snd tr))) ;
             try f0 po_safe tr k
             with  Misc.Exit -> k
             | Misc.Fatal msg |Misc.UserError msg ->
@@ -550,6 +550,7 @@ module Make(C:Builder.S)
             all_relax k
           else
             choose_relax relax k
+    (* END of zyva *)
 
     let rec all_int l =
       match l with
@@ -561,7 +562,7 @@ module Make(C:Builder.S)
       | e::es -> count_e (if is_int e then ce else ce+1) es
 
 
-    let count_ext es = count_e 0 es
+    let count_ext es = eprintf "count_ext\n"; count_e 0 es
 
     let change_loc e = match loc_sd e with
     | Same -> false
@@ -573,7 +574,7 @@ module Make(C:Builder.S)
         | x::xs -> do_rec (if p x then c+1 else c) xs in
       do_rec 0
 
-    let count_changes = count_p change_loc
+    let count_changes = eprintf "count_changes\n"; count_p change_loc
 
     let build_safe r0 es =
       let rs =
@@ -608,6 +609,7 @@ module Make(C:Builder.S)
       rej
 
     let last_check_call rej aset f rs po_safe res k =
+      eprintf "last_check_call\n";
       match res with
       | [] -> k
       | _ ->
@@ -620,7 +622,7 @@ module Make(C:Builder.S)
                 (match O.choice with
                 | Default| Sc | Ppo | MixedCheck -> true
                 | Thin | Free | Uni | Critical | Transitive |Total -> false) &&
-                (count_ext le=1 || all_int le || count_changes le < 2) then k
+                (count_ext le=1 || (eprintf "all_int\n"; all_int le) || count_changes le < 2) then k
               else begin
                   let ok = (* Check for rejected sequenes that span over cycle "cut" *)
                   let rej = (* Keep non-trivial edge sequences only *)
