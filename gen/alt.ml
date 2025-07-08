@@ -31,6 +31,7 @@ module type AltConfig = sig
   val variant : Variant_gen.t -> bool
   type fence
   val cumul : fence list Config.cumul
+  val same_loc : bool
 end
 
 module Make(C:Builder.S)
@@ -552,17 +553,12 @@ module Make(C:Builder.S)
             choose_relax relax k
     (* END of zyva *)
 
-    let rec all_int l =
-      match l with
-      | [] -> true
-      | a::s -> (is_int a)&&(all_int s)
-
     let rec count_e ce = function
       | [] -> ce
       | e::es -> count_e (if is_int e then ce else ce+1) es
 
 
-    let count_ext es = eprintf "count_ext\n"; count_e 0 es
+    let count_ext es = count_e 0 es
 
     let change_loc e = match loc_sd e with
     | Same -> false
@@ -574,7 +570,7 @@ module Make(C:Builder.S)
         | x::xs -> do_rec (if p x then c+1 else c) xs in
       do_rec 0
 
-    let count_changes = eprintf "count_changes\n"; count_p change_loc
+    let count_changes = count_p change_loc
 
     let build_safe r0 es =
       let rs =
@@ -609,7 +605,6 @@ module Make(C:Builder.S)
       rej
 
     let last_check_call rej aset f rs po_safe res k =
-      eprintf "last_check_call\n";
       match res with
       | [] -> k
       | _ ->
@@ -622,7 +617,7 @@ module Make(C:Builder.S)
                 (match O.choice with
                 | Default| Sc | Ppo | MixedCheck -> true
                 | Thin | Free | Uni | Critical | Transitive |Total -> false) &&
-                (count_ext le=1 || (eprintf "all_int\n"; all_int le) || count_changes le < 2) then k
+                (count_ext le=1 || ( not O.same_loc && count_changes le < 2 ) ) then k
               else begin
                   let ok = (* Check for rejected sequenes that span over cycle "cut" *)
                   let rej = (* Keep non-trivial edge sequences only *)
@@ -638,7 +633,7 @@ module Make(C:Builder.S)
                        List.fold_left (fun  k xs -> max k (List.length xs)) 0 rej in
                      let pss = Misc.cuts max_sz le in
                      not (substring_spanp rej pss) in
-                if ok then
+                if ok then begin
                   let mk_info _es =
                     let ss = build_safe rs res in
                     let info =
@@ -648,6 +643,7 @@ module Make(C:Builder.S)
                       ] in
                     info,C.R.Set.of_list rs in
                   f le mk_info D.no_name D.no_scope k
+                end
                 else k
               end
             with (Normaliser.CannotNormalise _) -> k
