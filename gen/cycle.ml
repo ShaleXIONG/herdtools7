@@ -252,7 +252,8 @@ module Make (O:Config) (E:Edge.S) :
       match e.bank with
       | Pte -> PteVal.pp e.pte
       | (Ord|Pair|Tag|CapaTag|CapaSeal|VecReg _|Instr) -> debug_val e.v in
-    sprintf "%s%s %s %s%s%s%s%s %s %s"
+    sprintf "#[%d] %s%s %s %s%s%s%s%s %s %s"
+      e.idx
       (debug_dir e.dir)
       (debug_atom e.atom)
       (Code.pp_loc e.loc)
@@ -1449,7 +1450,7 @@ let merge_changes n nss =
     if
       not O.allow_back &&
       List.exists proc_back nss
-    then Warn.fatal "Forbidden po vs. com" ;
+    then Warn.fatal "Forbidden po vs. com";
     if O.verbose > 1 then begin
       eprintf "SPLITTED:\n" ; debug_procs nss
     end ;
