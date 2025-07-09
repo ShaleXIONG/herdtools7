@@ -763,8 +763,8 @@ let remove_store n0 =
       let p = find_non_pseudo_prev m.prev
       and n = find_non_pseudo m.next in
 (*      eprintf "[%a] in [%a]..[%a]\n" debug_node m debug_node p debug_node n ; *)
-      if not (E.is_ext p.edge || E.is_ext n.edge) then begin
-        Warn.fatal "Insert pseudo edge %s appears in-between  %s..%s (at least one neighbour must be an external edge)"
+      if not (E.is_com p.edge || E.is_com n.edge) then begin
+        Warn.fatal "Insert pseudo edge %s appears in-between  %s..%s (at least one neighbour must be a communication edge)"
           (E.pp_edge m.edge)  (E.pp_edge p.edge)  (E.pp_edge n.edge)
       end;
       match p.edge.E.edge with
@@ -1404,7 +1404,6 @@ let merge_changes n nss =
   List.filter Misc.consp (Array.to_list t)
 
   let value_before v1 v2 = v1 < v2
-
 
   let proc_back ns = match ns with
   | []|[_] -> false
