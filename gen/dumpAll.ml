@@ -379,13 +379,13 @@ module Make(Config:Config)(T:Builder.S)
             let es,c = T.C.resolve_edges es in
             let seen,nes,sigs = have_seen r.sigs es in
             if seen then Warn.fatal "Duplicate" ;
-            let init,init_pte = T.C.finish c in
+            let c,init,init_pte = T.C.finish c in
             dump_test all_chan check init init_pte { orig = es ; norm = nes }
               mk_info mk_name mk_scope c { r with sigs = sigs; }
         else
           fun all_chan check es mk_info mk_name mk_scope r ->
             let es,c = T.C.resolve_edges es in
-            let init,init_pte = T.C.finish c in
+            let c,init,init_pte = T.C.finish c in
             dump_test all_chan check init init_pte { orig = es ; norm = es ; }
               mk_info mk_name mk_scope c r
 
