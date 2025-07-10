@@ -1578,7 +1578,10 @@ let rec group_rec x ns = function
           match get_ord_writes n with
           | [] -> []
           | (loc,_)::_ as xs ->
-              [loc,[List.map snd xs]]
+              (* Note: the `List.rev` is necessary
+                 as in the common case above, it processes
+                 via `fold_right` which starts from the tail *)
+              [loc,[List.rev @@ List.map snd xs]]
         else
           Warn.fatal "Unique location" in
     List.fold_right
