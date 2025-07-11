@@ -1023,63 +1023,6 @@ let set_same_loc st n0 =
     ) (* END of the function applying to `fold_left` *) (next_x_ok, st) nss
     (* END of do_set_write_val *)
 
-  let set_all_write_val nss =
-    let _,initvals =
-      List.fold_right
-        (fun ns (k,env as r) ->
-          match ns with
-          | [] -> r
-          | n::_ ->
-              (* Assume all node in `ns` is the same location as `n`,
-                 process the nodes in list `ns` for the location `loc` *)
-              let loc = n.evt.loc in
-              let sz = get_wide_list ns in
-              let i = if do_kvm then k else 0 in
-              let pte_val = pte_val_init loc in
-              (* Since it is a cycle, the initial value of `check_value`
-                 and `check_fault` depend on if there are write to
-                 the variable and pte respectively. *)
-              let check_value = exist_plain_value_write ns in
-              let check_fault = exist_pte_value_write ns in
-              let init_st = CoSt.create i sz pte_val check_value check_fault in
-              let next_x_ok,_st = do_set_write_val false init_st ns in
-              let env = if do_kvm then (Code.as_data loc,Value.from_int k)::env else env in
-              if next_x_ok then
-                k+8,(next_x,Value.from_int (k+4))::env
-              else
-                k+4,env)
-        nss (0,[]) in
-    initvals
-
-  let set_write_v n =
-    let nss =
-      try
-        let m =
-          find_node
-            (fun m ->
-              m.prev.evt.loc <> m.evt.loc &&
-              m.next.evt.loc = m.evt.loc) n in
-        split_by_loc m
-      with
-      | Not_found ->
-        (*check if node is preceded by a non com node and is itself a com node*)
-        let to_com n0 = not (E.is_com n0.prev.edge) && E.is_com n0.edge in
-        fold (fun n0 _ -> if E.is_id n0.edge.E.edge then assert false) n ();
-        try
-          (* check for R ensures that we start on Fr if possible*)
-          let m = find_node (fun m -> to_com m && m.evt.dir = Some R) n in
-          split_one_loc m
-        with Not_found -> try
-          (* The previous search failed. This search will return the W node from
-             which an Rf edge starts, provided that the previous edge is not a
-             communication or a Rmw edge *)
-          let m = find_node (fun m -> to_com m) n in
-          split_one_loc m
-        with Not_found -> Warn.fatal "cannot set write values"
-      | Exit -> Warn.fatal "cannot set write values" in
-    let initvals = set_all_write_val nss in
-    nss,initvals
-
 (* Loop over every node and set the expected value from the previous node *)
 let set_dep_v nss =
   let v = List.fold_left
@@ -1194,6 +1137,7 @@ let do_set_read_v init =
     let final_st = do_rec init_st ns in
     (CoSt.get_cell final_st).(0),CoSt.get_pte_value final_st
 
+  (* TODO this return `vs` is  only used for verbose *)
   let set_read_v nss initvals =
   List.fold_right
     (fun ns k -> match ns with
@@ -1202,9 +1146,68 @@ let do_set_read_v init =
         let init = List.assoc_opt (Code.as_data n.evt.loc) initvals
                   |> Option.map Value.to_int
                   |> Option.value ~default:0 in
+        (* TODO this return `vf` is  only used for verbose *)
         let vf = do_set_read_v init ns in
         (n.evt.loc,vf)::k)
     nss []
+
+  let set_all_write_val nss =
+    let _,initvals,final_values =
+      List.fold_right
+        (fun ns (k,env,final_values as r) ->
+          match ns with
+          | [] -> r
+          | n::_ ->
+              (* Assume all node in `ns` is the same location as `n`,
+                 process the nodes in list `ns` for the location `loc` *)
+              let loc = n.evt.loc in
+              let sz = get_wide_list ns in
+              let init = if do_kvm then k else 0 in
+              let pte_val = pte_val_init loc in
+              (* Since it is a cycle, the initial value of `check_value`
+                 and `check_fault` depend on if there are write to
+                 the variable and pte respectively. *)
+              let check_value = exist_plain_value_write ns in
+              let check_fault = exist_pte_value_write ns in
+              let init_st = CoSt.create init sz pte_val check_value check_fault in
+              let next_x_ok,_st = do_set_write_val false init_st ns in
+              let vf = do_set_read_v init ns in
+              let env = if do_kvm then (Code.as_data loc,Value.from_int k)::env else env in
+              if next_x_ok then
+                k+8,(next_x,Value.from_int (k+4))::env,(n.evt.loc,vf)::final_values
+              else
+                k+4,env,(n.evt.loc,vf)::final_values)
+        nss (0,[],[]) in
+    initvals,final_values
+
+  let set_write_v n =
+    let nss =
+      try
+        let m =
+          find_node
+            (fun m ->
+              m.prev.evt.loc <> m.evt.loc &&
+              m.next.evt.loc = m.evt.loc) n in
+        split_by_loc m
+      with
+      | Not_found ->
+        (*check if node is preceded by a non com node and is itself a com node*)
+        let to_com n0 = not (E.is_com n0.prev.edge) && E.is_com n0.edge in
+        fold (fun n0 _ -> if E.is_id n0.edge.E.edge then assert false) n ();
+        try
+          (* check for R ensures that we start on Fr if possible*)
+          let m = find_node (fun m -> to_com m && m.evt.dir = Some R) n in
+          split_one_loc m
+        with Not_found -> try
+          (* The previous search failed. This search will return the W node from
+             which an Rf edge starts, provided that the previous edge is not a
+             communication or a Rmw edge *)
+          let m = find_node (fun m -> to_com m) n in
+          split_one_loc m
+        with Not_found -> Warn.fatal "cannot set write values"
+      | Exit -> Warn.fatal "cannot set write values" in
+    let initvals,final_values = set_all_write_val nss in
+    nss,initvals,final_values
 
 (* zyva... *)
 
@@ -1242,20 +1245,27 @@ let finish n =
     debug_cycle stderr n
   end ;
 (* Set write values *)
-  let by_loc,initvals = set_write_v n in
+  let by_loc,initvals,final_values = set_write_v n in
   if O.verbose > 1 then begin
     eprintf "INITIAL VALUES: %s\n"
       (String.concat "; "
          (List.map
             (fun (loc,k) -> sprintf "%s->%d" loc (Value.to_int k))
             initvals)) ;
-    eprintf "WRITE VALUES\n" ;
-    debug_cycle stderr n
+    eprintf "ASSIGNED VALUES\n" ;
+    debug_cycle stderr n;
+    eprintf "FINAL VALUES [%s]\n"
+      (String.concat ","
+          (List.map
+             (fun (loc,(v,_pte)) -> sprintf "%s -> 0x%x"
+                 (Code.pp_loc loc) (Value.to_int v)) final_values))
   end ;
-(* Set load values *)
-  let vs = set_read_v by_loc initvals in
 (* Set dependency values *)
   (if do_morello then set_dep_v by_loc) ;
+(* TODO REMOVE at the last moment *)
+(* Set load values *)
+  (* TODO this `vs` is  only used for verbose *)
+  let vs = set_read_v by_loc initvals in
   if O.verbose > 1 then begin
     eprintf "READ VALUES\n" ;
     debug_cycle stderr n ;
@@ -1265,6 +1275,7 @@ let finish n =
              (fun (loc,(v,_pte)) -> sprintf "%s -> 0x%x"
                  (Code.pp_loc loc) (Value.to_int v)) vs))
   end ;
+(* TODO REMOVE at the last moment *)
   if O.variant Variant_gen.Self then check_fetch n;
   initvals
 
