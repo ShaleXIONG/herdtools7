@@ -892,6 +892,117 @@ let set_same_loc st n0 =
     n.evt <- e ;
     st
 
+  (* Assuming node `n` is a write event,
+     assign a appropriate value based on `n`
+     and the current machine state `st`.
+     Return the new `st` and `next_x_ok`.
+     When a new variable is introduced due to PTE operation,
+     e.g. writting a different physical address,
+     the `next_x_ok` is set.
+   *)
+  let set_write_node n st next_x_ok =
+    let check_value = Some (CoSt.get_check_value st) in
+    (* No need to add fault check in read modify write situation,
+       as the label will be assigned in read *)
+    let fault_update_without_rmw st =
+      if n.evt.rmw then None,st else CoSt.fault_update st in
+    match n.evt.loc with
+    | Data _ ->
+      let bank = n.evt.bank in
+      begin match bank with
+      | Instr -> Warn.fatal "instruction annotation to data bank not possible?"
+      | Ord ->
+        let st = set_write_val_ord st n in
+        let check_fault, st = fault_update_without_rmw st in
+        n.evt <- { n.evt with check_fault; check_value; };
+        (next_x_ok, st)
+      | Pair ->
+        (* Same code as for Ord, however notice that
+           CoSet.set_cell has a case for pairs.
+           However increment of current value is by 2 *)
+        let cell = CoSt.get_cell st in
+        assert (Array.length cell>=2) ;
+        let st = CoSt.next_co st Ord in (* Pre-increment *)
+        let st = set_write_val_ord st n in
+        let check_fault, st = fault_update_without_rmw st in
+        n.evt <- { n.evt with check_fault; check_value; };
+        (next_x_ok, st)
+      | Tag|CapaTag|CapaSeal ->
+        let st = CoSt.next_co st bank in
+        let v = CoSt.get_co st bank in
+        n.evt <- { n.evt with v = v; check_value; } ;
+        let e,st = CoSt.set_tcell st n.evt in
+        n.evt <- e ;
+        (next_x_ok, st)
+      | VecReg a ->
+        let st = CoSt.step_simd st a in
+        let cell = CoSt.get_cell st
+                     |> Array.map Value.to_int in
+        let vecreg  = E.SIMD.read a cell
+                 |> List.map (List.map Value.from_int) in
+        let cell = Array.map Value.from_int cell in
+        let v =
+          match vecreg with
+            | (v::_)::_ -> v
+            | _ -> assert false in
+        n.evt <- { n.evt with vecreg; cell; v; check_value; } ;
+        (next_x_ok, st)
+      | Pte ->
+      (* TODO Rework here, esp the function `next_loc` and ref value `next_x_pred`.
+        They are all difficult to understand. *)
+        let next_x_pred = ref false in
+        (* get the previous `pte_value` *)
+        let pte_val = CoSt.get_pte_value st in
+        (* update the pte value in kvm variant *)
+        let pte_val =
+          if do_kvm then begin
+              let next_loc () =
+                match n.evt.loc with
+                | Code.Data x ->
+                   begin try
+                       let m =
+                         find_node
+                           (fun m ->
+                             match m.evt.loc with
+                             | Code.Data y ->
+                                not (Misc.string_eq x y)
+                             | _-> false) n in
+                       Code.as_data m.evt.loc
+                     with Not_found ->
+                       next_x_pred := true ; next_x end
+                | Code.Code _ -> Warn.fatal "Code location has no pte value." in
+              E.set_pteval n.evt.atom pte_val next_loc
+            end else pte_val in
+        let st = CoSt.set_pte_value st pte_val in
+        (* TODO UPDATE *)
+        let v = Value.from_pte pte_val in
+        n.evt <- { n.evt with v; (* pte = pte_val;*) check_value; } ;
+        (* TODO END UPDATE *)
+        ((!next_x_pred || next_x_ok), st)
+      end (* END of match bank *)
+    | Code _ ->
+      let ins = CoSt.get_co st Instr |> Value.to_int in
+      n.evt <- { n.evt with ins; check_value; } ;
+      let bank = n.evt.bank in
+      match bank with
+      | Instr -> Warn.fatal "not letting instr write happen"
+      | Ord ->
+        let st = CoSt.next_co st bank in
+        let v = CoSt.get_co st bank in
+        n.evt <- { n.evt with ins = Value.to_int v;} ;
+        (next_x_ok, st)
+      | _ -> (next_x_ok, st)
+
+
+
+
+
+
+
+
+
+
+(*
   (* `do_set_write_val` returns true when variable next_x has been used
      and should thus be initialised *)
   let do_set_write_val next_x_ok st nss =
@@ -1022,6 +1133,7 @@ let set_same_loc st n0 =
       | Some R |None -> (next_x_ok, st)
     ) (* END of the function applying to `fold_left` *) (next_x_ok, st) nss
     (* END of do_set_write_val *)
+*)
 
 (* Loop over every node and set the expected value from the previous node *)
 let set_dep_v nss =
@@ -1056,6 +1168,79 @@ let set_read_pair_v n cell check_value =
   let e = { e with v=v; check_value } in
   n.evt <- e
 
+let set_read_node n st =
+  (* If the result of this read need to be checked,
+     i.e. generating postcondition *)
+  let check_value = Some (CoSt.get_check_value st) in
+  let bank = n.evt.bank in
+  let cell = CoSt.get_cell st in
+  match bank with
+  | Ord | Instr->
+    set_read_individual_v n cell check_value;
+    let check_fault, st = CoSt.fault_update st in
+    n.evt <- { n.evt with check_fault };
+    st
+  | Pair ->
+    set_read_pair_v n cell check_value;
+    let check_fault, st = CoSt.fault_update st in
+    n.evt <- { n.evt with check_fault };
+    st
+  | VecReg a ->
+    let cell = Array.map Value.to_int cell in
+    let v = E.SIMD.read a cell
+             |> E.SIMD.reduce
+             |> Value.from_int in
+    let check_fault, st = CoSt.fault_update st in
+    n.evt <- { n.evt with v=v ; vecreg=[]; bank=Ord; check_value; check_fault ; };
+    st
+  | Tag|CapaTag|CapaSeal ->
+    n.evt <- { n.evt with v = CoSt.get_co st bank; check_value; };
+    st
+  | Pte ->
+    let pte_val = CoSt.get_pte_value st in
+    let v = Value.from_pte pte_val in
+    n.evt <- { n.evt with v; };
+    st
+
+  (* `do_set_write_val` returns true when variable next_x has been used
+     and should thus be initialised *)
+  let do_set_write_val next_x_ok st nss =
+    List.fold_left ( fun (next_x_ok, st) n ->
+    (* Update the `cell` in `st` if there is a `.store *)
+      let st = if n.store == nil then st else set_write_val_ord st n.store in
+      (* Update tag and instruction value in `st` no matter `W`, `R` etc. *)
+      (* TODO: potentially rework the if-elseif-else here as it is confused *)
+      begin if Code.is_data n.evt.loc then
+        begin if do_memtag then
+          let tag = Value.to_int (CoSt.get_co st Tag) in
+          n.evt <- { n.evt with tag; }
+        else if do_morello then
+          let ord = Value.to_int (CoSt.get_co st Ord) in
+          let ctag = Value.to_int (CoSt.get_co st CapaTag) in
+          let cseal = Value.to_int (CoSt.get_co st CapaSeal) in
+          n.evt <- { n.evt with ord; ctag; cseal; }
+        end
+      else (* TODO why update the instruction *)
+        begin
+          let ins = Value.to_int (CoSt.get_co st Instr) in
+          n.evt <- { n.evt with ins; }
+        end
+ (*
+          else if do_neon then (* set both fields, it cannot harm *)
+            let ord = get_co st Ord in
+            let v = get_co st VecReg in
+            let vecreg = [|v;v;v;v;|] in
+            n.evt <- { n.evt with ord=ord; vecreg=vecreg; }
+ *)
+      end ;
+      (* END of `if Code.is_data n.evt.loc` *)
+      match n.evt.dir with
+      | Some W -> set_write_node n st next_x_ok
+      | Some R -> next_x_ok,set_read_node n st
+      | None -> next_x_ok,st
+    ) (* END of the function applying to `fold_left` *) (next_x_ok, st) nss
+    (* END of do_set_write_val *)
+
 (* Assume all the events are for the same location,
    convert the node list, i.e., the first unnamed parameter,
    to the final value `cell` and PTE value `pte_cell` *)
@@ -1066,42 +1251,13 @@ let do_set_read_v init =
        - pte value => CoSt.get_pte_value, CoSt.set_pte_value *)
     List.fold_left ( fun st n ->
       let st = if n.store == nil then st else CoSt.set_cell st n.store.evt.cell in
+(*
       let cell = CoSt.get_cell st in
+*)
       let bank = n.evt.bank in
       begin match n.evt.dir with
       (* Assign the read value according to `cell` and `pte_cell` *)
-      | Some R ->
-        (* If the result of this read need to be checked,
-           i.e. generating postcondition *)
-        let check_value = Some (CoSt.get_check_value st) in
-        begin match bank with
-        | Ord | Instr->
-          set_read_individual_v n cell check_value;
-          let check_fault, st = CoSt.fault_update st in
-          n.evt <- { n.evt with check_fault };
-          st
-        | Pair ->
-          set_read_pair_v n cell check_value;
-          let check_fault, st = CoSt.fault_update st in
-          n.evt <- { n.evt with check_fault };
-          st
-        | VecReg a ->
-          let cell = Array.map Value.to_int cell in
-          let v = E.SIMD.read a cell
-                   |> E.SIMD.reduce
-                   |> Value.from_int in
-          let check_fault, st = CoSt.fault_update st in
-          n.evt <- { n.evt with v=v ; vecreg=[]; bank=Ord; check_value; check_fault ; };
-          st
-        | Tag|CapaTag|CapaSeal ->
-          n.evt <- { n.evt with v = CoSt.get_co st bank; check_value; };
-          st
-        | Pte ->
-          let pte_val = CoSt.get_pte_value st in
-          let v = Value.from_pte pte_val in
-          n.evt <- { n.evt with v; };
-          st
-        end
+      | Some R -> set_read_node n st
       (* Update `st`, `cell` and `pte_cell` for future read events *)
       | Some W ->
         let st =
