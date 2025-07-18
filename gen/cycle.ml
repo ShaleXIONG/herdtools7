@@ -844,29 +844,54 @@ let set_same_loc st n0 =
   do_rec n0 ;
   st
 
-
-
-(* Set the values of write events *)
-
+  (* Split the cycle into node list per locations.
+     In the case of more than one location is needed,
+     the input node `n` MUST be a node of location change,
+     that is, `n.evt.loc <> n.prev.evt.loc`.
+     This avoids situation where two node list corresponding
+     to the same location. *)
   let split_by_loc n =
     let rec do_rec m =
-      let r =
-        if m.next == n then begin
-          assert (m.evt.loc <> m.next.evt.loc) ;
-          [[]]
-        end else do_rec m.next in
-      if m.evt.loc =  m.next.evt.loc then match r with
-      | ms::rem -> (m::ms)::rem
-      | [] -> assert false
-      else [m]::r in
+      (* Similar to deep first searching, i.e.
+         traverse to the immediate previous node of
+         the input node `n` first, and work backwards
+         to split into lists per location,
+         hence the base case is `m.next == n` *)
+      if m.next == n then [[m]]
+      else
+        (* recursive: `r` contains result from `n.prev` to `m.next`,
+           moving backwards via `.prev` *)
+        let r = do_rec m.next in
+        if m.evt.loc = m.next.evt.loc then match r with
+          | ms::rem -> (m::ms)::rem
+          (* empty list should not reach in recursive *)
+          | [] -> assert false
+        else [m]::r in
     do_rec n
 
-  let split_one_loc n =
-    let rec do_rec m =
-      m::
-      if m.next == n then []
-      else do_rec m.next in
-    [do_rec n]
+  (* Given a cycle starting from node `n`, split the cycle to
+     based on location, e.g. [[nodes for `x`] [nodes for `y`] ... ] *)
+  let split_by_location n =
+    try
+      split_by_loc @@ find_node
+        (fun m -> m.prev.evt.loc <> m.evt.loc && m.next.evt.loc = m.evt.loc) n
+    with
+    | Not_found ->
+      (*check if node is preceded by a non com node and is itself a com node*)
+      let to_com n0 = not (E.is_com n0.prev.edge) && E.is_com n0.edge in
+      fold (fun n0 _ -> if E.is_id n0.edge.E.edge then assert false) n ();
+      try
+        (* check for R ensures that we start on Fr if possible*)
+        let m = find_node (fun m -> to_com m && m.evt.dir = Some R) n in
+        split_by_loc m
+      with Not_found -> try
+        (* The previous search failed. This search will return the W node from
+           which an Rf edge starts, provided that the previous edge is not a
+           communication or a Rmw edge *)
+        let m = find_node (fun m -> to_com m) n in
+        split_by_loc m
+      with Not_found -> Warn.fatal "cannot set write values"
+    | Exit -> Warn.fatal "cannot set write values"
 
   let exist_plain_value_write ns =
       List.exists
@@ -897,8 +922,7 @@ let set_same_loc st n0 =
      Return the new `st` and `next_x_ok`.
      When a new variable is introduced due to PTE operation,
      e.g. writting a different physical address,
-     the `next_x_ok` is set.
-   *)
+     the `next_x_ok` is set. *)
   let set_write_node n st next_x_ok =
     let check_value = Some (CoSt.get_check_value st) in
     (* No need to add fault check in read modify write situation,
@@ -947,36 +971,29 @@ let set_same_loc st n0 =
         n.evt <- { n.evt with vecreg; cell; v; check_value; } ;
         (next_x_ok, st)
       | Pte ->
-      (* TODO Rework here, esp the function `next_loc` and ref value `next_x_pred`.
-        They are all difficult to understand. *)
+        (* Function `next_loc` will only be called in `E.set_pteval`
+           if a next location is needed. `next_loc` will check if there
+           are existing other variable in the cycle; otherwise the
+           (1) `next_x_pred` set to true, indicating a new variable
+           is needed, and (2) a new `next_x` returns. *)
         let next_x_pred = ref false in
-        (* get the previous `pte_value` *)
-        let pte_val = CoSt.get_pte_value st in
-        (* update the pte value in kvm variant *)
-        let pte_val =
-          if do_kvm then begin
-              let next_loc () =
-                match n.evt.loc with
-                | Code.Data x ->
-                   begin try
-                       let m =
-                         find_node
-                           (fun m ->
-                             match m.evt.loc with
-                             | Code.Data y ->
-                                not (Misc.string_eq x y)
-                             | _-> false) n in
-                       Code.as_data m.evt.loc
-                     with Not_found ->
-                       next_x_pred := true ; next_x end
-                | Code.Code _ -> Warn.fatal "Code location has no pte value." in
-              E.set_pteval n.evt.atom pte_val next_loc
-            end else pte_val in
+        let next_loc () =
+          match n.evt.loc with
+          | Code.Code _ -> Warn.fatal "Code location has no pte value."
+          | Code.Data x ->
+            try let m = find_node ( fun m ->
+                match m.evt.loc with
+                | Code.Data y -> not (Misc.string_eq x y)
+                | _-> false ) n in
+              Code.as_data m.evt.loc
+            with Not_found -> next_x_pred := true ; next_x in
+        (* get the previous pte via get_pte_value
+           and return the new pte value *)
+        let pte_val = E.set_pteval n.evt.atom
+                        (CoSt.get_pte_value st) next_loc in
         let st = CoSt.set_pte_value st pte_val in
-        (* TODO UPDATE *)
         let v = Value.from_pte pte_val in
-        n.evt <- { n.evt with v; (* pte = pte_val;*) check_value; } ;
-        (* TODO END UPDATE *)
+        n.evt <- { n.evt with v; check_value; } ;
         ((!next_x_pred || next_x_ok), st)
       end (* END of match bank *)
     | Code _ ->
@@ -1059,9 +1076,9 @@ let set_read_node n st =
     n.evt <- { n.evt with v; };
     st
 
-  (* `do_set_write_val` returns true when variable next_x has been used
+  (* `set_values returns true when variable next_x has been used
      and should thus be initialised *)
-  let do_set_write_val next_x_ok st nss =
+  let set_values next_x_ok st nss =
     (* `st` keeps track of tags and current state of memory,
        - plain value => CoSt.get_cell, CoSt.set_cell,
        - pte value => CoSt.get_pte_value, CoSt.set_pte_value *)
@@ -1102,9 +1119,11 @@ let set_read_node n st =
     ) (* END of the function applying to `fold_left` *) (next_x_ok, st) nss in
     let final_value_pte = ((CoSt.get_cell new_st).(0),CoSt.get_pte_value new_st) in
     new_x_ok,new_st,final_value_pte
-    (* END of do_set_write_val *)
+    (* END of `set_values *)
 
-  let set_all_write_val nss =
+  (* Given a `nss` of type `node list list`, where each element list contains
+     node for the same locations. The function set all the value to nodes *)
+  let set_node_values nss =
     let _,initvals,final_values =
       List.fold_right
         (* In each iteration, it processes the nodes corresponding to the same locations.
@@ -1112,62 +1131,30 @@ let set_read_node n st =
            - `env` tracks the initial environment, noting that information
               more than the initial value might be added into this `env`.
            - `final_values` are the final value and pte value after building the cycle *)
-        (fun ns (init_value,env,final_values as r) ->
-          match ns with
-          | [] -> r
-          | n::_ ->
-              (* Assume all node in `ns` is the same location as `n`,
-                 process the nodes in list `ns` for the location `loc` *)
-              let loc = n.evt.loc in
-              let sz = get_wide_list ns in
-              let init = if do_kvm then init_value else 0 in
-              let pte_val = pte_val_init loc in
-              (* Since it is a cycle, the initial value of `check_value`
-                 and `check_fault` depend on if there are write to
-                 the variable and pte respectively. *)
-              let check_value = exist_plain_value_write ns in
-              let check_fault = exist_pte_value_write ns in
-              let init_st = CoSt.create init sz pte_val check_value check_fault in
-              let next_x_ok,_st,vf = do_set_write_val false init_st ns in
-              let env = if do_kvm then (Code.as_data loc,Value.from_int init_value)::env else env in
-              if next_x_ok then
-                (* If `next_x_ok`, this means a new variable has been introduced,
-                   due to, e.g., introducing aliasing in page table operation.
-                   `next_x` will be the new variable. *)
-                init_value+8,(next_x,Value.from_int (init_value+4))::env,(n.evt.loc,vf)::final_values
-              else
-                init_value+4,env,(n.evt.loc,vf)::final_values)
+        ( fun ns (init_value,env,final_values) ->
+          let loc =
+            try (List.hd ns).evt.loc
+            with | _ -> Warn.fatal "Empty list for a location." in
+          let sz = get_wide_list ns in
+          let init = if do_kvm then init_value else 0 in
+          let pte_val = pte_val_init loc in
+          (* Since it is a cycle, the initial value of `check_value`
+             and `check_fault` depend on if there are write to
+             the variable and pte respectively. *)
+          let check_value = exist_plain_value_write ns in
+          let check_fault = exist_pte_value_write ns in
+          let init_st = CoSt.create init sz pte_val check_value check_fault in
+          let next_x_ok,_st,vf = set_values false init_st ns in
+          let env = if do_kvm then (Code.as_data loc,Value.from_int init_value)::env else env in
+          if next_x_ok then
+            (* If `next_x_ok`, this means a new variable has been introduced,
+               due to, e.g., introducing aliasing in page table operation.
+               `next_x` will be the new variable. *)
+            init_value+8,(next_x,Value.from_int (init_value+4))::env,(loc,vf)::final_values
+          else
+            init_value+4,env,(loc,vf)::final_values )
         nss (0,[],[]) in
     initvals,final_values
-
-  let set_write_v n =
-    let nss =
-      try
-        let m =
-          find_node
-            (fun m ->
-              m.prev.evt.loc <> m.evt.loc &&
-              m.next.evt.loc = m.evt.loc) n in
-        split_by_loc m
-      with
-      | Not_found ->
-        (*check if node is preceded by a non com node and is itself a com node*)
-        let to_com n0 = not (E.is_com n0.prev.edge) && E.is_com n0.edge in
-        fold (fun n0 _ -> if E.is_id n0.edge.E.edge then assert false) n ();
-        try
-          (* check for R ensures that we start on Fr if possible*)
-          let m = find_node (fun m -> to_com m && m.evt.dir = Some R) n in
-          split_one_loc m
-        with Not_found -> try
-          (* The previous search failed. This search will return the W node from
-             which an Rf edge starts, provided that the previous edge is not a
-             communication or a Rmw edge *)
-          let m = find_node (fun m -> to_com m) n in
-          split_one_loc m
-        with Not_found -> Warn.fatal "cannot set write values"
-      | Exit -> Warn.fatal "cannot set write values" in
-    let initvals,final_values = set_all_write_val nss in
-    nss,initvals,final_values
 
 (* zyva... *)
 
@@ -1204,27 +1191,18 @@ let finish n =
     eprintf "LOCATIONS\n" ;
     debug_cycle stderr n
   end ;
-(* Set write values *)
-  let by_loc,initvals,final_values = set_write_v n in
+(* Set values *)
+  let by_loc = split_by_location n in
+  let initvals,final_values = set_node_values by_loc in
   if O.verbose > 1 then begin
     eprintf "INITIAL VALUES: %s\n"
-      (String.concat "; "
-         (List.map
-            (fun (loc,k) -> sprintf "%s->%d" loc (Value.to_int k))
-            initvals)) ;
+      ( List.map
+        ( fun (loc,k) -> sprintf "%s->%d"
+                 loc (Value.to_int k)
+        ) initvals
+        |> String.concat "; " );
     eprintf "ASSIGNED VALUES\n" ;
     debug_cycle stderr n;
-    eprintf "FINAL VALUES [%s]\n"
-      (String.concat ","
-          (List.map
-             (fun (loc,(v,_pte)) -> sprintf "%s -> 0x%x"
-                 (Code.pp_loc loc) (Value.to_int v)) final_values))
-  end ;
-(* Set dependency values *)
-  (if do_morello then set_dep_v by_loc) ;
-  if O.verbose > 1 then begin
-    eprintf "READ VALUES\n" ;
-    debug_cycle stderr n ;
     eprintf "FINAL VALUES [%s]\n"
       ( List.map
         ( fun (loc,(v,_pte)) -> sprintf "%s -> 0x%x"
@@ -1232,7 +1210,8 @@ let finish n =
         ) final_values
         |> String.concat "," )
   end ;
-(* TODO REMOVE at the last moment *)
+(* Set dependency values *)
+  (if do_morello then set_dep_v by_loc) ;
   if O.variant Variant_gen.Self then check_fetch n;
   initvals
 
