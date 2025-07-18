@@ -1076,8 +1076,12 @@ let set_read_node n st =
     n.evt <- { n.evt with v; };
     st
 
-  (* `set_values returns true when variable next_x has been used
-     and should thus be initialised *)
+  (* Assume all nodes in `ns` are for the same location,
+     `set_values` assign values. Return includes:
+       - `new_x_ok`, `true` when a new variable `next_x` has been used
+          and should thus be initialised
+       - final `st`, which is liked to be thrown away,
+       - final plain value and pte value. *)
   let set_values next_x_ok st nss =
     (* `st` keeps track of tags and current state of memory,
        - plain value => CoSt.get_cell, CoSt.set_cell,
@@ -1086,7 +1090,6 @@ let set_read_node n st =
     (* Update the `cell` in `st` if there is a `.store *)
       let st = if n.store == nil then st else set_write_val_ord st n.store in
       (* Update tag and instruction value in `st` no matter `W`, `R` etc. *)
-      (* TODO: potentially rework the if-elseif-else here as it is confused *)
       begin if Code.is_data n.evt.loc then
         begin if do_memtag then
           let tag = Value.to_int (CoSt.get_co st Tag) in
@@ -1097,7 +1100,7 @@ let set_read_node n st =
           let cseal = Value.to_int (CoSt.get_co st CapaSeal) in
           n.evt <- { n.evt with ord; ctag; cseal; }
         end
-      else (* TODO why update the instruction *)
+      else
         begin
           let ins = Value.to_int (CoSt.get_co st Instr) in
           n.evt <- { n.evt with ins; }
