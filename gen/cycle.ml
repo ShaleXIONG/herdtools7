@@ -653,6 +653,10 @@ let patch_edges n =
   exception FailMerge
 
   let merge2 a1 a2 = match a1,a2 with
+  (* The following rules out
+     annotation merge between `I` and `P`.
+     TODO it should be removed after reviewing
+     the `forbidden_ifetch.conf` *)
   | (None,Some a)
   | (Some a,None) when E.is_ifetch (Some a) -> raise FailMerge
   | (None,a)|(a,None) -> a
