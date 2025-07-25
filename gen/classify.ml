@@ -46,6 +46,8 @@ module type Config = sig
   val uniq : bool
   val outmap : string option
   val lowercase : bool
+  val sufname : string option
+  module Debug : Debug_gen.S
 end
 
 module Make(Co:Config)(F:Fence.S)(A:Atom.S) = struct
@@ -140,6 +142,8 @@ let () =
     let uniq = !uniq
     let outmap = !map
     let lowercase = !lowercase
+    let sufname = None
+    module Debug = Debug_gen.Make(struct let debug = !Config.debug end)
   end in
   let (module FenceImpl:Fence.S), (module AtomImpl:Atom.S) =
     match !arch with

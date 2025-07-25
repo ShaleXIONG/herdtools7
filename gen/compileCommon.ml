@@ -15,7 +15,6 @@
 (****************************************************************************)
 
 module type Config = sig
-  val verbose : int
   val show : ShowGen.t option
   val same_loc : bool
   val unrollatomic : int option
@@ -25,6 +24,7 @@ module type Config = sig
   val moreedges : bool
   val variant : Variant_gen.t -> bool
   val wildcard : bool
+  module Debug : Debug_gen.S
 end
 
 module type S = sig
@@ -63,6 +63,7 @@ module Make(C:Config) (A:Arch_gen.S) = struct
         let variant = C.variant
         let naturalsize = TypBase.get_size C.typ
         let wildcard = C.wildcard
+        module Debug = C.Debug
       end)
       (A)(A)
 

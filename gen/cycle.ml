@@ -58,10 +58,8 @@ module type S = sig
   val evt_null : event
   val make_wsi : int -> Code.loc -> event
 
-  (* TODO change v event *)
   val debug_evt : event -> string
 
-  (* TODO change v event *)
   module OrderedEvent : Set.OrderedType with type t = event
 
   module EventMap : MyMap.S with type key = event
@@ -76,7 +74,7 @@ module type S = sig
     }
   val nil : node
   val str_node : node -> string
-  val debug_cycle : out_channel ->  node -> unit
+  val debug_cycle : node -> string
 
 (* Find, may raise Not_found *)
   val find_node : (node -> bool) -> node -> node
@@ -133,12 +131,12 @@ end
 
 module type Config = sig
   val same_loc : bool
-  val verbose : int
 (* allow threads s.t. start -> end is against com+ *)
   val allow_back : bool
   val naturalsize : MachSize.sz
   val hexa : bool
   val variant : Variant_gen.t -> bool
+  module Debug : Debug_gen.S
 end
 
 module Make (O:Config) (E:Edge.S) :
@@ -149,7 +147,6 @@ module Make (O:Config) (E:Edge.S) :
        and module Value = E.Value
        and module RMW = E.RMW
   = struct
-  let dbg = false
   let do_memtag = O.variant Variant_gen.MemTag
   let do_morello = O.variant Variant_gen.Morello
   let do_kvm = Variant_gen.is_kvm O.variant
@@ -199,6 +196,9 @@ module Make (O:Config) (E:Edge.S) :
       check_fault=None;
       check_value=None; }
 
+  let verbose = O.Debug.verbose
+  let debug fmt = O.Debug.debug Debug_gen.Cycle fmt
+
   let make_wsi idx loc = { evt_null with dir=Some W ; loc=loc; idx=idx; v=Value.from_int 0;}
 
   module OrderedEvent = struct
@@ -220,6 +220,15 @@ module Make (O:Config) (E:Edge.S) :
       mutable prev : node ;
       mutable store : node ;
     }
+
+(* generic scan *)
+  let fold f m k =
+    let rec fold_rec n k =
+      let k = f n k
+      and nxt = n.next in
+      if nxt == m then k
+      else fold_rec nxt k in
+    fold_rec m k
 
   let debug_dir d = match d with
          Some W -> "W" | Some R -> "R" | None -> "_"
@@ -274,29 +283,23 @@ module Make (O:Config) (E:Edge.S) :
      store = nil ;
     }
 
-  let  debug_node chan n =
-    if n.store != nil then begin
+  let debug_node n =
+    let pp_store = if n.store == nil then ""
+    else
       let n = n.store in
-      fprintf chan "[%s %s]"
-        (debug_edge n.edge) (debug_evt n.evt)
-    end ;
-    fprintf chan "%s -%s->"
-      (debug_evt n.evt) (debug_edge n.edge)
+      sprintf "[%s %s]" (debug_edge n.edge) (debug_evt n.evt) in
+    sprintf "%s%s -%s->"
+      pp_store (debug_evt n.evt) (debug_edge n.edge)
 
   let str_node n = sprintf "%s -%s->" (debug_evt n.evt) (debug_edge n.edge)
 
-  let debug_nodes chan ns =
-    let rec iter chan = function
-      | [] -> ()
-      | [n] -> debug_node chan n
-      | n::ns -> fprintf chan "%a,%a" debug_node n iter ns in
-    iter chan ns
-  let debug_cycle chan n =
-    let rec do_rec m =
-      fprintf chan "%a\n" debug_node m ;
-      if m.next != n then do_rec m.next in
-    do_rec n ;
-    flush chan
+  let debug_nodes ns = String.concat "," @@ List.map debug_node ns
+
+  let debug_cycle n =
+    fold ( fun node acc ->
+      acc @ [sprintf "%s" (debug_node node)]
+    ) n []
+    |> String.concat "\n"
 
 let do_alloc_node idx e =
   {
@@ -365,10 +368,9 @@ let find_node_prev p n =
 
 (*  n and m are on the same thread, n being strictly before m *)
   let po_pred n m =
-    if dbg then
-      eprintf "po_pred: n=[%a], m=[%a]\n%!" debug_node n debug_node m ;
+    debug "po_pred: n=[%s], m=[%s]\n" (debug_node n) (debug_node m) ;
   let rec do_rec p =
-    if dbg then eprintf "  pred_rec, node %a\n%!" debug_node p ;
+    debug "  pred_rec, node %s\n" (debug_node p) ;
     if p == m then true
     else if E.is_ext p.edge || p.next == n then false
     else do_rec p.next in
@@ -376,9 +378,7 @@ let find_node_prev p n =
 
 let find_prev_code_write n =
   let rec do_rec m =
-    if dbg then
-      eprintf "find_prev_code_write, n=%a m=%a\n%!"
-        debug_node n debug_node m ;
+    debug "find_prev_code_write, n=%s m=%s\n" (debug_node n) (debug_node m) ;
     let e = m.evt in
     match e.loc,E.safe_dir m.edge with
     | Code c,Some W ->
@@ -403,15 +403,6 @@ let non_pseudo e = E.is_non_pseudo e.E.edge
 let find_non_pseudo m = find_edge non_pseudo m
 let find_non_pseudo_prev m = find_edge_prev non_pseudo m
 
-
-(* generic scan *)
-  let fold f m k =
-    let rec fold_rec n k =
-      let k = f n k
-      and nxt = n.next in
-      if nxt == m then k
-      else fold_rec nxt k in
-    fold_rec m k
 
 (* Get size (as integers) from annotations *)
 
@@ -666,16 +657,16 @@ let patch_edges n =
         let e = n.edge in
         if non_insert_store e then begin
           let p = find_non_insert_store_prev n.prev in
-          if O.verbose > 0 then Printf.eprintf "Merge p=%a, n=%a\n"
-            debug_node p debug_node n ;
+            verbose 2 "Merge p=%s, n=%s\n"
+            (debug_node p) (debug_node n) ;
           let pe = p.edge in
           let a2 = pe.E.a2 and a1 = e.E.a1 in
           try
             let a = merge2 a2 a1 in
             p.edge <- { pe with E.a2=a ; } ;
             n.edge <- { e  with E.a1=a ; } ;
-            if O.verbose > 1 then Printf.eprintf "    => p=%a, n=%a\n"
-              debug_node p debug_node n
+              verbose 2 "    => p=%s, n=%s\n"
+              (debug_node p) (debug_node n)
           with FailMerge ->
             Warn.fatal "Impossible annotations: %s %s"
               (E.pp_edge pe) (E.pp_edge e)
@@ -733,7 +724,7 @@ let remove_store n0 =
            Warn.fatal "Node pseudo edge %s appears in-between  %s..%s (one neighbour at least must be an external edge)"
            (E.pp_edge m.edge)  (E.pp_edge p.edge)  (E.pp_edge n.edge)
       end ;
-(*    eprintf "p=%a, m=%a\n" debug_node p debug_node m; *)
+      debug "p=%s, m=%s\n" (debug_node p) (debug_node m);
       let prev_d = E.dir_tgt p.edge in
       let d = match prev_d,my_d with
       | Irr,Irr ->
@@ -762,7 +753,7 @@ let remove_store n0 =
     begin
       let p = find_non_pseudo_prev m.prev
       and n = find_non_pseudo m.next in
-(*      eprintf "[%a] in [%a]..[%a]\n" debug_node m debug_node p debug_node n ; *)
+      debug "[%s] in [%s]..[%s]\n" (debug_node m) (debug_node p) (debug_node n) ;
       if not (E.is_ext p.edge || E.is_ext n.edge) then begin
         Warn.fatal "Insert pseudo edge %s appears in-between  %s..%s (at least one neighbour must be an external edge)"
           (E.pp_edge m.edge)  (E.pp_edge p.edge)  (E.pp_edge n.edge)
@@ -776,10 +767,7 @@ let remove_store n0 =
     if m.next != n0 then do_rec m.next in
   do_rec n0 ;
   patch_edges n0 ;
-  if O.verbose > 1 then begin
-    eprintf "DIRECTIONS\n" ;
-    debug_cycle stderr n0
-  end
+  verbose 2 "DIRECTIONS\n%s\n" (debug_cycle n0)
 
 
 (***************************)
@@ -828,7 +816,7 @@ let set_diff_loc st n0 =
         with Not_found ->  m in
       next_loc n1.edge st in
     m.evt <- { m.evt with loc=loc ; bank=E.atom_to_bank m.evt.atom; } ;
-(*    eprintf "LOC SET: %a [p=%a]\n%!" debug_node m debug_node p; *)
+    debug "LOC SET: %s [p=%s]\n" (debug_node m) (debug_node p);
     if m.store != nil then begin
       m.store.evt <-
         { m.store.evt with loc=loc ; bank=Ord; }
@@ -1345,10 +1333,11 @@ let set_dep_v nss =
 let set_read_individual_v n cell check_value =
   let e = n.evt in
   let v = E.extract_value cell.(0) e.atom in
-(* eprintf "SET READ: cell=0x%x, v=0x%x\n" cell v ; *)
+  debug "SET READ: cell=%s, v=%s\n"
+      (Value.pp_v ~hexa:true cell.(0)) (Value.pp_v ~hexa:true v) ;
   let e = { e with v=v; check_value } in
-  n.evt <- e
-(* eprintf "AFTER %a\n" debug_node n *)
+  n.evt <- e;
+  debug "AFTER %s\n" (debug_node n)
 
 let set_read_pair_v n cell check_value =
   let e = n.evt in
@@ -1685,34 +1674,29 @@ let finish n =
      terminate the program *)
   check_cycle n;
 
-  if O.verbose > 1 then begin
-    eprintf "LOCATIONS\n" ;
-    debug_cycle stderr n
-  end ;
-(* Set values *)
+  (* Set values *)
   let start_node,by_loc = split_by_location n in
   let initvals,final_values = set_node_values by_loc in
   propagate_fault by_loc;
   (if do_morello then set_dep_v by_loc) ;
-  if O.verbose > 1 then begin
-    eprintf "INITIAL VALUES: %s\n"
-      ( List.map
-        ( fun (loc,k) -> sprintf "%s->%d"
-                 loc (Value.to_int k)
-        ) initvals
-        |> String.concat "; " );
-    eprintf "ASSIGNED VALUES\n" ;
-    debug_cycle stderr n;
-    eprintf "FINAL VALUES [%s]\n"
-      (final_values |> List.map
-        ( fun (loc,(v,_pte)) -> sprintf "%s -> %s"
-          (Code.pp_loc loc) (Value.pp_v v) )
-        |> String.concat "," )
-  end ;
-(* Set dependency values *)
+  (* Debug print *)
+  let pp_init =
+    List.map ( fun (loc,k) -> sprintf "%s->0x%s"
+         loc (Value.pp_v ~hexa:true k)
+      ) initvals
+    |> String.concat "; " in
+  let pp_final =
+    List.map ( fun (loc,(v,_pte)) -> sprintf "%s->0x%s"
+        (Code.pp_loc loc) (Value.pp_v ~hexa:true v)
+      ) final_values
+    |> String.concat "," in
+    verbose 2 "INITIAL VALUES [%s]\nASSIGNED VALUES\n%s\nFINAL VALUES [%s]\n"
+      pp_init (debug_cycle n) pp_final;
+  (* END of bebug print *)
+  (* Set dependency values *)
   if O.variant Variant_gen.Self then check_fetch start_node;
   start_node,initvals
-(* END of finish *)
+  (* END of finish *)
 
 
 (* Re-extract edges, with irelevant directions solved *)
@@ -1834,9 +1818,9 @@ let merge_changes n nss =
       e1.loc = e2.loc && value_before e2 e1
 
   let debug_proc ns =
-    String.concat " " (List.map (fun n -> sprintf "<%s>" (str_node n)) ns)
+    String.concat " " @@ List.map (fun n -> sprintf "<%s>" (str_node n)) ns
 
-  let debug_procs nss =  List.iter (fun ns -> eprintf "%s\n" (debug_proc ns)) nss
+  let debug_procs nss = String.concat "\n" @@ List.map (fun ns -> sprintf "%s" (debug_proc ns)) nss
 
   let split_procs n =
     let n =
@@ -1867,9 +1851,7 @@ let merge_changes n nss =
       not O.allow_back &&
       List.exists proc_back nss
     then Warn.fatal "Forbidden po vs. com";
-    if O.verbose > 1 then begin
-      eprintf "SPLITTED:\n" ; debug_procs nss
-    end ;
+    verbose 2 "SPLITTED:\n%s\n" (debug_procs nss);
     nss
 
 (****************************)
@@ -1944,28 +1926,25 @@ let merge_changes n nss =
         let tag_ws = if do_memtag then
           List.map get_tag_locs (get_ord_writes n) else [] in
         let ws = ord_ws@tag_ws in
-        if O.verbose > 1 then
-          List.iter
-            (fun (loc,n) ->
-              eprintf "LOC=%s, node=%a\n" (Code.pp_loc loc) debug_node n)
-            ws ;
+        let pp_ws = List.map ( fun (loc,n) ->
+            sprintf "LOC=%s, node=%s" (Code.pp_loc loc) (debug_node n)
+          ) ws
+          |> String.concat "\n" in
+        debug "WRITE SET:\n%s\n" pp_ws;
         let r = by_loc ws in
         List.fold_right
-          (fun (loc,ws) k -> match ws with
+          ( fun (loc,ws) k -> match ws with
           | [] -> k
           | [ns] ->
-             if O.verbose > 1 then
-               Printf.eprintf "Standard write sequence on %s: %s\n"
-                 (Code.pp_loc loc)
-                 (String.concat " "
-                    (List.map str_node ns)) ;
-             (loc,ws)::k
+            debug "Standard write sequence on %s: %s\n"
+              (Code.pp_loc loc) (String.concat " " @@ List.map str_node ns) ;
+            (loc,ws)::k
           | _ ->
               (* Assume there is no consecutive writes to the same location *)
-              List.iter
-                (fun ns -> eprintf "[%a]\n" debug_nodes ns)
-                ws ;
-              assert false)
+              let pp_ws = List.map ( fun ns ->
+                  sprintf "[%s]" (debug_nodes ns) ) ws
+                |> String.concat "\n" in
+              Warn.fatal "Error in coherence:%s\n" pp_ws )
           r []
     | None ->
         if O.same_loc then
@@ -1974,7 +1953,7 @@ let merge_changes n nss =
           | (loc,_)::_ as xs ->
               [loc,[List.map snd xs]]
         else
-          Warn.fatal "Unique location" in
+          Warn.fatal "Unique location, try to switch on -oneloc" in
     List.fold_right
       (fun (loc,ns) k ->
         match loc with
