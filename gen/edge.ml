@@ -70,6 +70,7 @@ module type S = sig
   val is_non_pseudo : tedge -> bool
   val is_dp_addr : tedge -> bool
   val compute_rmw : rmw -> Code.v -> Code.v -> Code.v
+  val valid_rmw : rmw list -> bool
 
   type edge = { edge: tedge;  a1:atom option; a2: atom option; }
 
@@ -95,6 +96,7 @@ module type S = sig
 
   val parse_atom : string -> atom
   val parse_atoms : string list -> atom list
+  val get_access_atom: atom option -> MachMixed.t option
 
   val parse_fence : string -> fence
   val parse_edge : string -> edge
@@ -191,6 +193,7 @@ and type rmw = F.rmw = struct
   type rmw = F.rmw
 
   let compute_rmw = F.compute_rmw
+  let valid_rmw = F.valid_rmw
 
   module PteVal = F.PteVal
 
@@ -577,6 +580,8 @@ let fold_tedges f r =
         [] xs
     with LexUtil.Error msg ->
       Warn.fatal "bad atoms list (%s)" msg
+
+  let get_access_atom = F.get_access_atom
 
 
 (**********)

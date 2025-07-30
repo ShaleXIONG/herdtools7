@@ -42,6 +42,7 @@ module
     let show_rmw_reg () = false
 
     let compute_rmw () _old co_cell  = co_cell
+    let valid_rmw _ = true
   end
 
 module  LxSx(A:sig type arch_atom end) = struct
