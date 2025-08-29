@@ -11,3 +11,7 @@
  (libraries herdtools unix)
  (modules_without_implementation archLoc archRun arch_gen atom autoInterpret
    builder fence XXXCompile_gen))
+
+(menhir
+ (modules parser)
+ (flags --explain --inspection --table --dump))
