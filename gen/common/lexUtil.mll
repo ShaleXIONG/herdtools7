@@ -19,9 +19,7 @@
 exception Error of string
 let error msg = raise (Error msg)
 
-type t =
-  | One of string
-  | Seq of string list
+open Parser
 
 let pp = function
 | One s -> Printf.sprintf "One(%s)" s

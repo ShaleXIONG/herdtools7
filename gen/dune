@@ -34,3 +34,6 @@
   autoInterpret
   builder
   XXXCompile_gen))
+(menhir
+ (modules parser)
+ (flags --explain --inspection --table --dump))
