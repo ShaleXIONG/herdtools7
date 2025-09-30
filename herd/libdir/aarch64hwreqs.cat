@@ -93,6 +93,7 @@ let IFB-ob =
 let dob =
  addr
  | data
+ (* TODO [Exp & R] ?? *)
  | ctrl; [Exp & W | HU | TLBI | DC.CVAU | IC]
  | addr; [Exp & M]; po; [Exp & W | HU]
  | addr; [Exp & M]; lrs; [Exp & R | Imp & Tag & R]
@@ -120,11 +121,13 @@ let aob =
 (* Barrier-ordered-before *)
 let bob =
  [Exp & M | Imp & Tag & R]; po; [dmb.full]; po; [Exp & M | Imp & Tag & R | MMU & FAULT]
+ (* TODO Is DC.CVAU does any thing in base line *)
  | [Exp & M]; po; [dmb.full]; po; [DC.CVAU]
  | [DC.CVAU]; po; [dmb.full]; po; [Exp & M]
  | [DC.CVAU]; po; [dmb.full]; po; [DC.CVAU]
  | [Exp & (R \ NoRet) | Imp & Tag & R]; po; [dmb.ld]; po; [Exp & M | Imp & Tag & R | MMU & FAULT]
  | [Exp & W]; po; [dmb.st]; po; [Exp & W | MMU & FAULT]
+ (* TODO why this is needed *)
  | [range([A];amo;[L])]; po; [Exp & M | Imp & Tag & R | MMU & FAULT]
  | [L]; po; [A]
  | [A | Q]; po; [Exp & M | Imp & Tag & R | MMU & FAULT]

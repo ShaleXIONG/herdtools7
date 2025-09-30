@@ -64,9 +64,11 @@ let rec dtrm =
 (** Data, Address and Control dependencies *)
 
 let basic-dep =
+  (* TODO what is `same-instance` *)
    [Exp & R | Rreg]; dtrm?
 let data = [Exp & R]; (basic-dep; [DATA]; iico_data+; [Exp & W]) & ~same-instance
 let addr = [Exp & R]; (basic-dep; [ADDR]; iico_data+; [Exp & M | Imp & Tag & R | Imp & TTD & R | HU | TLBI | DC.CVAU | IC.IVAU]) & ~same-instance
+  (* TODO why there is a po here? it looks odd *)
 let ctrl = [Exp & R]; basic-dep; [BCC]; po
 
 (** Pick dependencies *)
