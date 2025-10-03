@@ -49,6 +49,7 @@ module Make (Config:Config) (M:Builder.S) =
       Misc.fold_cross ess
         (fun es r ->
           let es = List.flatten es in
+          eprintf "try: %s\n" (pp_edges es);
           kont es D.no_info D.no_name D.no_scope r)
         r
 
@@ -87,6 +88,7 @@ module Make (Config:Config) (M:Builder.S) =
       List.flatten (List.map (fun e -> expand_edge e []) ess)
 
     let zyva pp_rs =
+      eprintf "%s\n" (String.concat "#" pp_rs);
       let remove_space_after_comma s =
         let re = Str.regexp ",[ \t\n\r]*" in
         Str.global_replace re "," s in
@@ -97,10 +99,17 @@ module Make (Config:Config) (M:Builder.S) =
         (* convert to canonical form then parse the input *)
         let ess = String.concat " " pp_rs
           |> remove_space_after_comma
-          |> split_by_whitespace
-          |> List.map parse_edges
+          |> split_by_whitespace in
+        eprintf "%s\n" (String.concat "#" ess);
+        let ess = List.map parse_edges ess
           |> List.map expand_edges
           |> varatom_ess in
+        let pp_ess = List.map
+          ( fun es -> List.map (fun e_list -> sprintf "%s" (pp_edges e_list)) es
+                      |> String.concat "#"
+          ) ess
+          |> String.concat "\n" in
+        eprintf "%s\n" pp_ess;
         D.all (gen ess)
       with Fatal msg ->
         eprintf "Fatal error: %s\n" msg ;
