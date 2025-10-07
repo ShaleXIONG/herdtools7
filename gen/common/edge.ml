@@ -736,6 +736,7 @@ let fold_tedges f r =
     let expand_dir_list = F.expand_dp_dir dp in
     List.fold_left (fun acc sd -> f (Dir sd) acc) acc expand_dir_list
 
+<<<<<<< HEAD
   let do_expand_edge e f acc =
     match e.edge with
     | Insert _|Store|Id|Node _|Rf _ | Fr _ | Ws _
@@ -747,6 +748,16 @@ let fold_tedges f r =
     | Dp (dp,sd,expr) ->
       expand_dp_dir dp expr (fun new_expr ->
         expand_loc sd ( fun new_sd -> f {e with edge=Dp(dp,new_sd,new_expr);})) acc
+=======
+  let do_expand_edge e f =
+    match e.edge with
+    | Insert _|Store|Id|Node _|Rf _ | Fr _ | Ws _
+    | Hat |Rmw _|Leave _|Back _
+      -> f e
+    | Dp (dp,sd,expr) ->
+      expand_dp_dir dp expr (fun new_expr ->
+        expand_loc sd ( fun new_sd -> f {e with edge=Dp(dp,new_sd,new_expr);}))
+>>>>>>> a90a9876e ([gen] Introduce wildcard `*` to `Dp`.)
     | Po(sd,e1,e2) ->
         expand_dir2 e1 e2 (fun d1 d2 ->
           expand_loc sd ( fun new_sd -> f {e with edge=Po(new_sd,d1,d2);})) acc
