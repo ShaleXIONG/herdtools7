@@ -228,7 +228,7 @@ struct
       | "rf-reg" | "BCC" | "Rreg" | "loc" | "same-low-order-bits" 
       | "IC.IALLUIS" | "IC.IALLU" | "tc-ib" | "sca-class"
       | "EXC-ENTRY" | "EXC-RET-CSE" | "PTEV"
-      | "EXC-ENTRY-CSE" -> raise (Skip (Printf.sprintf "%s not implemented" v))
+      | "EXC-ENTRY-CSE" | "EXC-ENTRY-IFB" -> raise (Skip (Printf.sprintf "%s not implemented" v))
       | _ -> [ Empty v ]
     in
     Union matching
