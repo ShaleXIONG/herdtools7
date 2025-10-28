@@ -373,19 +373,9 @@ and type rmw = A.RMW.rmw = struct
 
   let pp_edge_with_pa compat e = do_pp_edge compat pp_aa_qua e
 
-  let compare_atomo a1 a2 = match a1,a2 with
-  | None,None -> 0
-  | None,Some _ -> -1
-  | Some _,None -> 1
-  | Some a1,Some a2 -> A.compare_atom a1 a2
+  let compare_atomo = compare
 
-  let compare e1 e2 = match compare_atomo e1.a1 e2.a1 with
-  | 0 ->
-      begin match  compare_atomo e1.a2 e2.a2 with
-      | 0 -> compare e1.edge e2.edge
-      | r -> r
-      end
-  | r -> r
+  let compare = compare
 
   let pp_strong sd e1 e2 =
     sprintf "Fence%s%s%s" (pp_sd sd) (pp_extr e1) (pp_extr e2)
