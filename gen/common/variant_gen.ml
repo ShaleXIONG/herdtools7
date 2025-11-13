@@ -59,13 +59,11 @@ let parse tag = match Misc.lowercase tag with
 | "fullmixed" -> Some FullMixed
 | "mixeddisjoint"|"disjoint" -> Some MixedDisjoint
 | "mixedstrictoverlap"|"strictoverlap" -> Some MixedStrictOverlap
-| "self" -> Some Self
-| "ifetch" -> Some Self
+| "self" | "ifetch" -> Some Self
 | "memtag" -> Some MemTag
 | "novolatile" -> Some NoVolatile
 | "morello" -> Some Morello
-| "kvm" -> Some KVM
-| "vmsa" -> Some KVM
+| "kvm" | "vmsa" -> Some KVM
 | "fullkvm" -> Some FullKVM
 | "nofault" -> Some NoFault
 | "neon" -> Some Neon
