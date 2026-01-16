@@ -271,18 +271,18 @@ let common_specs () =
 let name_spec is_diyone =
   if is_diyone then
    ("-name",Arg.String (fun s -> name := Some s),
-     "<s> specify the name of test and output to file (`-stdout false`). Note `-norm` overrides this flag.")
+     "<s> specify the name of the test. Outputs to file by default, unless `-stdout` is set. Note: `-norm` overrides this flag.")
   else
    ("-name",Arg.String (fun s -> name := Some s),
      "<s> specify base name of tests.")
 
 let stdout_spec is_diyone =
   if is_diyone then
-    ("-stdout", Arg.Bool (fun b ->  stdout := b),
-     "output to stdout, when `-name` and `-norm` is specified. It overrides `-o`. (default true)")
+    ("-stdout", Arg.Set stdout,
+     "when `-name` or `-norm` is set, control whether output is written to stdout (ignored otherwise). It overrides `-o`.")
   else
-    ("-stdout", Arg.Bool (fun b ->  stdout := b),
-     "output to stdout. It overrides `-o`. If `-cycleonly` is true, then this is implied to be true. (default false)")
+    ("-stdout", Arg.Set stdout,
+     "output to stdout. It overrides `-o`. If `-cycleonly` is true, then this is implied to be true.")
 
 let varatomspec =
   ("-varatom", Arg.String (fun s -> varatom := !varatom @ [s]),
@@ -294,7 +294,7 @@ let diyone_spec () =
   common_specs () @
   name_spec true
   :: stdout_spec true
-  :: ("-norm",Arg.Set norm, "a normalised name for test name and output to file (`-stdout false`)")
+  :: ("-norm",Arg.Set norm, "find a normalised name for the test. Outputs to file by default, unless `-stdout` is set.")
   :: []
 
 let diycross_spec () =

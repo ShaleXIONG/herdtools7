@@ -180,7 +180,10 @@ let pp_es = ref []
 let () =
   Util.parse_cmdline
     (Config.diyone_spec ())
-    (fun x -> pp_es := x :: !pp_es)
+    (fun x -> pp_es := x :: !pp_es) ;
+  (* stdout should only be used with norm or name *)
+  if !Config.stdout && !Config.name = None && not !Config.norm then
+    Warn.user_error "-stdout will be ignored."
 
 let pp_es = List.rev !pp_es
 let cpp = match !Config.arch with
