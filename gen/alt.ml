@@ -390,17 +390,16 @@ module Make(C:Builder.S)
 
     let can_prefix prefix = mk_can_prefix prefix
 
+    (* if `rl` is the prefix of `l` *)
     let rec is_prefix l rl =
       match rl,l with
       | hrl::trl, hl::tl -> if hl = hrl then  is_prefix tl trl else false
       | [], _ -> true (* end of rl before or at the end of l *)
       | _, [] -> false (* end of l before end of rl*)
 
-
-    let check_cycle rsuff rl =
-      let rsuff = List.split rsuff |> snd |> List.concat in
-      not (List.exists (fun rl -> is_prefix rsuff rl) rl)
-
+    let reject_relax_edge_prefix relax_edges rejects =
+      let edges = List.split relax_edges |> snd |> List.concat in
+      List.exists (fun reject -> is_prefix edges reject) rejects
 
     (* This function is used `zyva` *)
     let call_rec_base prefix f0 safes po_safe over n r suff f_rec k ?(reject=[])=
@@ -408,7 +407,7 @@ module Make(C:Builder.S)
         can_precede safes po_safe r suff &&
         minprocs suff <= O.nprocs &&
         minint (r::suff) <= O.max_ins-1 &&
-        check_cycle (r::suff) reject
+        not @@ reject_relax_edge_prefix (r::suff) reject
       then
         let suff = r::suff
         and n = n-sz r in
@@ -581,36 +580,30 @@ module Make(C:Builder.S)
       let rs = RelaxSet.diff rs (RelaxSet.of_list r0) in
       RelaxSet.elements rs
 
-    exception Result of bool
-
-(* Is xs a prefix of s@p ? *)
-
-    let prefix_spanp xs (p,s) =
-      let rec is_prefix xs ys = match xs,ys with
-        | [],_ -> raise (Result true)
-        | _::_,[] -> xs (* xs -> what is still to be matched *)
-        | x::xs,y::ys ->
-           if C.E.compare x y = 0 then is_prefix xs ys
-           else raise (Result false) in
-      try
-        let xs = is_prefix xs s in
-        match is_prefix xs p with
-        | [] -> true (* xs and s@p are equal! *)
-        |  _::_ -> false (* xs larger.. *)
-      with Result b -> b
-
-    let substring_spanp rej pss =
+    let reject_cycle relax_edges rejects =
+      let rec fold_tail func acc = function
+        | [] -> acc
+        | _ :: tail as lst -> fold_tail func (func acc lst) tail
+      in
+      let edges = List.split relax_edges |> snd |> List.concat in
       List.exists
-        (fun xs ->
-          List.exists
-            (fun ps -> prefix_spanp xs ps)
-            pss)
-      rej
+        (fun reject ->
+          List.length reject <= List.length edges
+          (* Given `tail` being all possible tails of `edges`
+             (include `res` itself), check if `tail @ `edges`
+             contain `reject` element from `rejects`.
+             This is equivalent to check the cycle `edges`. *)
+          && fold_tail ( fun acc tail ->
+            if acc then acc
+            else is_prefix (tail @ edges) reject
+          ) false edges
+        ) rejects
 
     let last_check_call rej aset f rs po_safe res k =
       if is_empty_list res then k else
           let lst = Misc.last res in
-          if can_precede aset po_safe lst res then
+          if can_precede aset po_safe lst res
+             && not @@ reject_cycle res rej then
             let es = List.map snd res in
             let le = List.flatten es in
             try
@@ -620,21 +613,6 @@ module Make(C:Builder.S)
                 | Thin | Free | Uni | Critical | Transitive |Total -> false) &&
                 (count_ext le=1 || all_int le || count_changes le < 2) then k
               else begin
-                  let ok = (* Check for rejected sequenes that span over cycle "cut" *)
-                  let rej = (* Keep non-trivial edge sequences only *)
-                    List.filter
-                      (function
-                       | []|[_] -> false
-                       | _::_::_ -> true)
-                      rej  in
-                  match rej with
-                  | [] -> true
-                  | _::_ ->
-                     let max_sz =
-                       List.fold_left (fun  k xs -> max k (List.length xs)) 0 rej in
-                     let pss = Misc.cuts max_sz le in
-                     not (substring_spanp rej pss) in
-                if ok then
                   let mk_info _es =
                     let ss = build_safe rs res in
                     let info =
@@ -644,43 +622,12 @@ module Make(C:Builder.S)
                       ] in
                     info,C.R.Set.of_list rs in
                   f le mk_info D.no_name D.no_scope k
-                else k
               end
             with (Normaliser.CannotNormalise _) -> k
           else k
 
-    let rec prefixp xs ys =
-      match xs,ys with
-      | [],_ -> true
-      | _::_,[] -> raise Exit
-      | x::xs,y::ys ->
-         C.E.compare x y = 0 && prefixp xs ys
-
-    let rec sublistp xs ys = match ys with
-      | [] -> false
-      | _::rem ->
-         prefixp xs ys || sublistp xs rem
-
-    let substringp xs ys =
-      try sublistp xs ys
-      with Exit ->
-            match xs with
-            | []|[_] -> false
-            | _::_::_ ->
-               let pss = Misc.cuts (List.length xs) ys in
-               List.exists
-                 (fun ps -> prefix_spanp xs ps)
-                 pss
-
-    let last_minute rej ess =
+    let last_minute _rej ess =
       not (List.exists (fun es -> List.length es > O.max_ins) ess)
-      && begin
-          match rej with
-          | _::_ ->
-             let es = List.flatten ess  in
-             not (List.exists (fun xs -> substringp xs es) rej)
-          | [] -> true
-        end
 
     (* Note that we use `edge` here to refer a single edge or a compositional edges.
        e.g. PosRR or [PosRR Fre].
