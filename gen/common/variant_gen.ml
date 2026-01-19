@@ -54,7 +54,7 @@ let tags =
 
 let all_t =
   [ AsAmo ; ConstsInInit ; Mixed ; FullMixed ; MixedDisjoint ; MixedStrictOverlap ;
-    Self ; MemTag ; NoVolatile ; Morello ; KVM ; FullKVM ; NoFault ;
+    Self ; MemTag ; NoVolatile ; Morello ; KVM ; NoFault ;
     Neon ; SVE ; SME ; ConstrainedUnpredictable ]
 
 let parse tag = match Misc.lowercase tag with
@@ -103,7 +103,7 @@ let pp_herd_variant = function
   | Self -> Some "ifetch"
   | MemTag -> Some "memtag"
   | Morello -> Some "morello"
-  | KVM | FullKVM  -> Some "vmsa"
+  | KVM  -> Some "vmsa"
   | ConstrainedUnpredictable -> Some "ConstrainedUnpredictable"
 
 let is_mixed v = v Mixed || v FullMixed
