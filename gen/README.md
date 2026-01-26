@@ -23,8 +23,8 @@ Given two primitive relaxations, `lhs` and `rhs`, the following cases pass the f
 | dependency edge or program order edge between different loations such as `PodWR` | internal communication edge or insert edge |
 | dependency edge between different locations such as `DpAddrdW` | program order edge between different loations such as `PodWR` |
 | program order edge between different loations such as `PodWR` | dependency edge between different locations such as `DpAddrdW` |
-| internal read-from edge `Rfi` | program order edge between the same location such as `PosWR` |
-| program order edge between the same location such as `PosWR` | internal read-from edge `Rfi` |
+| internal read-from edge `Rfi` or `PosWR` | program order edge between the same location such as `PosWR` |
+| program order edge between the same location such as `PosWR` | internal read-from edge `Rfi` or `PosWR` |
 | RMW edge | any edge |
 | any edge | RMW edge |
 | external edge | any edge |
