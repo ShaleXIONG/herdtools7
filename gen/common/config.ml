@@ -60,6 +60,7 @@ let varatom = ref ([] : string list)
 let use_eieio = ref true
 let norm = ref false
 let filter_check = ref []
+let inputs = ref ([] : string list)
 
 let info = ref ([]:MiscParser.info)
 let add_info_line line = match LexScan.info line with
@@ -69,7 +70,9 @@ let add_info_line line = match LexScan.info line with
       Printf.sprintf "argument '%s' is not in 'key = value' format" line in
     raise (Arg.Bad msg)
 
-type do_observers =
+type subcommand = Show | SingleTest | MultiTest | TestGeneration | FilterCheck | Version
+
+  type do_observers =
   | Avoid   (* was false *)
   | Accept  (* was true  *)
   | Enforce (* is new *)
@@ -96,6 +99,16 @@ let show = ref (None:ShowGen.t option)
 let debug = ref Debug_gen.none
 let moreedges = ref false
 let realdep = ref false
+
+let usage () =
+    Printf.eprintf
+"Usage:
+  diy7 <subcommand> [options]\n
+Subcommands:
+  single-test  generates an individual test.
+  show         shows valid input relaxations
+  version      diy7 version";
+    exit 1
 
 let parse_cond tag = match tag with
 | "cycle" -> Cycle
@@ -144,6 +157,9 @@ let parse_cumul = function
 
 
 (* Helpers *)
+
+let wildcard = ref false
+let show_specs () = [("-wildcard", Arg.Set wildcard, " show wildcard relaxations")]
 
 let common_specs () =
   ("-v", Arg.Unit (fun () -> incr verbose),"  be verbose")::
@@ -359,6 +375,21 @@ let diy_spec () =
    "<lhs> <rhs> show whether the internal filter prohibits the two relaxations in the mode specified by `-mode` argument, however, all other constraints between <lhs> and <rhs>, such as edge compatibility, are ignored. Passing the internal filter is a necessary but not sufficient condition when sequence `<lhs> <rhs>` appears in the generated tests. This argument overrides other arguments but is overrided by `-show`.")::
      ("-unfold-only", Arg.Set unfold_only, "unfold the wildcard.")::
    []
+
+let parse_sub_command () =
+   if Array.length Sys.argv < 2 then usage ();
+   let sub_argv = Array.sub Sys.argv 1 (Array.length Sys.argv - 1) in
+   match Sys.argv.(1) with
+   | "version" -> diy_spec (),sub_argv
+   | "show" -> show_specs (),sub_argv
+   | "single-test" -> diy_spec (),sub_argv
+   | "multi-tests" -> diy_spec (),sub_argv
+   | "test-generation-filter-check" -> diy_spec (),sub_argv
+   | "test-generation" -> diy_spec (),sub_argv
+   (* Default test generation subcommand *)
+   | _ -> diy_spec (), Sys.argv
+
+let append_inputs s = inputs := (!inputs @ [s])
 
 let valid_stdout_flag is_diyone =
   if !stdout &&
