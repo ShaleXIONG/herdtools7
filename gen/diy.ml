@@ -138,44 +138,22 @@ let parse_fences fs = List.fold_right parse_fence fs []
   let parse_argument_opt argument =
     Option.map parse_argument argument |> Option.value ~default:[]
 
-  let gen lr ls rl n =
-    let lr = parse_argument_opt lr
-    and ls = parse_argument_opt ls
-    and rl = parse_argument_opt rl in
-    if O.verbose > 0 then begin
-      Printf.eprintf
-        "expanded relax=%s\n" (C.R.pp_relax_list lr)
-    end ;
-    M.gen ~relax:lr ~safe:ls ~reject:rl n
-
   let er e = ERS [plain_edge e]
 
-  let gen_thin n =
-    let lr = [er (Rf Int); er (Rf Ext)]
-    and ls = [PPO] in
-    M.gen ~relax:lr ~safe:ls n
+  let gen_thin_relax = [er (Rf Int); er (Rf Ext)]
+  let gen_thin_safe = [PPO]
 
+  let gen_uni_relax = [er (Rf Int); er (Rf Ext)]
+  let gen_uni_safe = [er (Ws Int); er (Ws Ext); er (Fr Int); er (Fr Ext); er (Po (Same,Irr,Irr))]
 
-  let gen_uni n =
-    let lr = [er (Rf Int); er (Rf Ext)]
-    and ls =
-      [er (Ws Int); er (Ws Ext); er (Fr Int);
-       er (Fr Ext); er (Po (Same,Irr,Irr))] in
-    M.gen ~relax:lr ~safe:ls n
-
-  let go n (*size*) orl olr ols (*relax and safe lists*) =
-    match O.choice with
-    | Default|Sc|Critical|Free|Ppo|Transitive|Total|MixedCheck ->
-        begin match olr,ols with
-        | None,None -> M.gen n
-        | _ -> gen olr ols orl n
-        end
-    | Thin -> gen_thin n
-    | Uni ->
-        begin match olr,ols with
-        | None,None -> gen_uni n
-        | _ -> gen olr ols orl n
-        end
+  let go n (*size*) ~relax ~safe ~reject =
+    match O.choice,relax,safe with
+    (* the first three cases use built-in default values for relax and safe *)
+    | Thin,_,_ -> M.gen ~relax:gen_thin_relax ~safe:gen_thin_safe ~reject n
+    | Uni,[],[] -> M.gen ~relax:gen_uni_relax ~safe:gen_uni_safe ~reject n
+    | (Default|Sc|Critical|Free|Ppo|Transitive|Total|MixedCheck),[],[] -> M.gen n
+    (* Common path to egenrate tests *)
+    | _ -> M.gen ~relax ~safe ~reject n
 end
 
 let get_arg s =
@@ -318,12 +296,13 @@ let () =
   let module Builder = (val builder : Builder.S) in
   let module M = Make(Builder)(Co) in
   try
+    let relax = M.parse_argument_opt relax_list in
+    let safe = M.parse_argument_opt safe_list in
+    let reject = M.parse_argument_opt reject_list in
     match filter_list with
     | [lhs;rhs] ->
         let lhs_unfold = M.parse_argument lhs in
         let rhs_unfold = M.parse_argument rhs in
-        let relax = M.parse_argument_opt relax_list in
-        let safe = M.parse_argument_opt safe_list in
         List.map ( fun l ->
           List.map ( fun r ->
             l,r,M.M.filter_check ~relax ~safe (Builder.R.edges_of l) (Builder.R.edges_of r)
@@ -338,13 +317,10 @@ let () =
         )
     | _ -> (* The common path to generate tests *)
       if unfold_only then
-        let relax = M.parse_argument_opt relax_list in
-        let safe = M.parse_argument_opt safe_list in
-        let reject = M.parse_argument_opt reject_list in
         eprintf "***relax***\n%s\n***safe***\n%s\n***reject***\n%s\n"
         (Builder.R.pp_relax_list relax) (Builder.R.pp_relax_list safe) (Builder.R.pp_relax_list reject)
       else
-      M.go !Config.size reject_list relax_list safe_list;
+      M.go !Config.size ~relax ~safe ~reject ;
     exit 0
   with
   | Misc.Fatal msg | Misc.UserError msg->
