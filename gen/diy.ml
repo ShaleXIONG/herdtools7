@@ -179,9 +179,17 @@ let split_cands xs =
   if xs = [] then None
   else (Some (String.concat " " xs))
 
-
 let () =
-  Arg.parse (Config.diy_spec ()) get_arg Config.usage_msg;
+  let argument_spec,current = Config.parse_sub_command () in
+  begin
+  try
+    Arg.parse_argv ~current Sys.argv argument_spec Config.append_inputs Config.usage_msg
+  with
+    | Arg.Bad msg -> Printf.eprintf "%s\n" msg; exit 2
+    | Arg.Help msg -> Printf.printf "%s\n" msg; exit 0
+  end;
+  (* TODO *)
+  List.iter (fun e -> eprintf "%s\n" e) !Config.inputs;
   begin
   match !Config.conf with
   | None -> ()
