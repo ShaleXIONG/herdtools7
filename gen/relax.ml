@@ -110,6 +110,7 @@ and type edge = E.edge
         | ERS es -> es
         | PPO -> assert false
 
+        let edges_ofs = Util.List.concat_map edges_of
 
         let rec compare_edges es1 es2 = match es1,es2 with
         | [],[] -> 0
@@ -346,21 +347,35 @@ and type edge = E.edge
             with _ -> None
           else None
 
+        (* A mapping from input (string) relax to
+           unfold relax *)
+        let macro_map = Hashtbl.create 100
+
+        (* Initialise the macro_map *)
+        let () =
+          Hashtbl.add macro_map "allRR" (allR Diff R) ;
+          Hashtbl.add macro_map "allRW" (allR Diff W) ;
+          Hashtbl.add macro_map "allWR" (allW Diff R) ;
+          Hashtbl.add macro_map "allWW" (allW Diff W) ;
+          Hashtbl.add macro_map "someRR" (someR Diff R) ;
+          Hashtbl.add macro_map "someRW" (someR Diff W) ;
+          Hashtbl.add macro_map "someWR" (someW Diff R) ;
+          Hashtbl.add macro_map "someWW" (someW Diff W)
+
+        let unfold_macro_parse_relax s =
+          match Hashtbl.find_opt macro_map s with
+          | Some relax -> relax
+          | None -> [do_parse_relax s]
+
         let expand_relax_macro = function
-          | One s ->
-              begin match s with
-              | "allRR" -> allR Diff R
-              | "allRW" -> allR Diff W
-              | "allWR" -> allW Diff R
-              | "allWW" -> allW Diff W
-              | "someRR" -> someR Diff R
-              | "someRW" -> someR Diff W
-              | "someWR" -> someW Diff R
-              | "someWW" -> someW Diff W
-              | _ ->  [do_parse_relax s]
-              end
+          | One s -> unfold_macro_parse_relax s
           | Seq [] -> Warn.fatal "Empty relaxation"
-          | Seq es -> [ERS (List.map E.parse_edge es)]
+          | Seq es ->
+              let xss = List.map unfold_macro_parse_relax es in
+              (* Given xss in the form of [[a1;a2;a3]; [b1;b2]; ..],
+                 The result is cross product between all elements, i.e.,
+                 [[a1;b1;..]; [a1;b2;..]; ..] *)
+              Misc.fold_cross xss ( fun xs acc -> ERS (edges_ofs xs) :: acc ) []
 
         let expand_relax_macros lus =
           let rs = List.map expand_relax_macro lus in
