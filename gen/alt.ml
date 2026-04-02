@@ -17,7 +17,6 @@
 open Printf
 open Code
 
-
 module type AltConfig = sig
   include DumpAll.Config
   val upto : bool
@@ -477,10 +476,10 @@ module Make(C:Builder.S)
       | x :: tail -> x :: update_last last tail
 
     (* This function is used `zyva` *)
-    let call_rec_base prefix test_generator safes po_safe over n r suff f_rec k ?(reject=[])=
+    let call_rec_base prefix test_generator safes po_safe over n r suff f_rec ~reject =
       (* check if `r` is compatible with `suff` *)
       match merge_predicate_and_check_compatibility safes po_safe r suff with
-      | None -> k
+      | None -> ()
       | Some (r,suff) ->
         (* The next candidate cycle *)
         let r_suff = r::suff in
@@ -494,9 +493,7 @@ module Make(C:Builder.S)
           && check_cycle r_suff reject in
         (* size only decreases when there is at least one non-insert edge in `r` *)
         let n = n-sz r in
-        (* update the accumulator `k`, if a posible candidate cycle
-           otherwise keep it the same as before *)
-        let k =
+        (* If a possible candidate cycle is found, invoke `test_generator`. *)
         Option.bind
         (* check if the tail `r_suff` is compatible with its head,
            hence find a possible candidate cycle *)
@@ -513,27 +510,27 @@ module Make(C:Builder.S)
               Some r_suff
           else None )
         (* find an candidate cycle, surfix with `prefix` and call `test_generator` *)
-        |> Option.map ( fun candidate_cycle ->
-          let tr = prefix @ candidate_cycle in
-          if O.verbose > 2 then
-          eprintf "TRY: '%s'\n"
-            (C.E.pp_edges (List.flatten (List.map snd tr))) ;
-          try test_generator po_safe tr k
-          (* `test_generator` fails, however, surpresses some expected error *)
-          with Misc.Exit -> k
-          | Misc.Fatal msg | Misc.UserError msg ->
-              eprintf "try test generator but fail: '%s'\n" msg ;
-              k
-          | e ->
-              eprintf "unexpected error in test generator: '%s'\n"
-                (Printexc.to_string e) ;
-              raise e
-        )
-        (* Unwrap the new accumulator `k` *)
-        |> Option.value ~default:k in
-      (* recursive call *)
-        if is_continue_search && n > 0 then f_rec n r_suff k
-        else k
+        |> ( function
+          | None -> ()
+          | Some candidate_cycle ->
+              let tr = prefix @ candidate_cycle in
+              if O.verbose > 2 then
+              eprintf "TRY: '%s'\n"
+                (C.E.pp_edges (List.flatten (List.map snd tr))) ;
+              try test_generator po_safe tr
+              (* `test_generator` fails, however, surpresses some expected error *)
+              with Misc.Exit -> ()
+              | Misc.Fatal msg | Misc.UserError msg ->
+                  eprintf "try test generator but fail: '%s'\n" msg ;
+                  ()
+              | e ->
+                  eprintf "unexpected error in test generator: '%s'\n"
+                    (Printexc.to_string e) ;
+                  raise e
+        ) ;
+        (* recursive call *)
+        if is_continue_search && n > 0 then f_rec n r_suff
+        else ()
     (* END of call_rec_base *)
 
     module SdDir2Set =
@@ -565,7 +562,7 @@ module Make(C:Builder.S)
               (pp_check m) ;
             assert false
 
-    let zyva prefix aset relax safe reject n f =
+    let zyva prefix aset relax safe reject n push =
 (*      let safes = C.R.Set.of_list safe in *)
       let relax = edges_ofs relax in
       let safe = edges_ofs safe in
@@ -574,32 +571,39 @@ module Make(C:Builder.S)
       (* ********************************** *)
       (* iterates over all relax edges `rs` *)
       (* ********************************** *)
-      let choose_relax rs k =
-      List.fold_left (fun k relex_edge ->
+      let choose_relax rs =
+      List.iter (fun relex_edge ->
         (* Build simple cycles for relaxation `relex_edge` *)
         (* Partially apply function `call_rec_base` *)
-        let call_rec_add_safe = call_rec_base prefix (f [fst relex_edge]) aset po_safe ~reject:reject in
+        let call_rec_add_safe =
+          call_rec_base prefix
+            (fun po_safe suff -> push [fst relex_edge] po_safe suff)
+            aset po_safe ~reject:reject in
         (* Add safe edge to suffix *)
-        let rec add_safe over ss n suf k =
-          List.fold_left ( fun k s -> call_rec_add_safe over n s suf (add_relaxs over) k ) k ss
+        let rec add_safe over ss n suf =
+          List.iter
+            (fun s -> call_rec_add_safe over n s suf (fun n suff -> add_relaxs over n suff))
+            ss
         (* Add some relax edges `relex_edge` to suffix, or nothing *)
-        and add_relaxs over n suf k =
-          let k = call_rec_add_safe true n relex_edge suf (add_relaxs true) k in
-          add_safe over safe n suf k in
+        and add_relaxs over n suf =
+          let () = call_rec_add_safe true n relex_edge suf
+              (fun n suff -> add_relaxs true n suff) in
+          add_safe over safe n suf in
 
         (* Decide what is the accumulator `k` for the next iteration
            based on if `prefix` is empty *)
         if is_empty_list prefix then
           (* Optimise: start with a relax edge `relex_edge` *)
-            call_rec_add_safe true n relex_edge [] (add_relaxs true) k
+            call_rec_add_safe true n relex_edge []
+              (fun n suff -> add_relaxs true n suff)
         else
-            add_relaxs false n [] k
-      ) k rs in
+            add_relaxs false n []
+      ) rs in
 
       (* ******************************************* *)
       (* Alternative: mix relaxation from relax list *)
       (* ******************************************* *)
-      let all_relax k =
+      let all_relax =
         let relax_set = RelaxSet.of_list (List.map fst relax) in
         let extract_relaxs suff =
           let suff_set = RelaxSet.of_list (List.map fst suff)  in
@@ -608,55 +612,57 @@ module Make(C:Builder.S)
         (* Partially apply function `call_rec_base` *)
         let call_rec_all_relax =
           call_rec_base prefix
-            (fun po_safe suff k ->
+            (fun po_safe suff ->
               let rs = extract_relaxs suff in
               let nrs = List.length rs in
-              if nrs > O.max_relax || nrs < O.min_relax then k
-              else f rs po_safe suff k)
+              if nrs > O.max_relax || nrs < O.min_relax then ()
+              else push rs po_safe suff)
             aset po_safe ~reject:reject in
 
         (* Add a one edge to suffix *)
-        let rec add_one over rs ss n suf k =
+        let rec add_one over rs ss n suf =
           (* Consume `rs` first *)
-          let new_k = List.fold_left ( fun k r ->
-            call_rec_all_relax true n r suf (add_one true relax safe) k
-          ) k rs in
+          List.iter (fun r ->
+            call_rec_all_relax true n r suf
+              (fun n suff -> add_one true relax safe n suff)) rs ;
           (* Then consume `ss` when `rs` is empty *)
-          List.fold_left ( fun k s ->
-            call_rec_all_relax over n s suf (add_one over relax safe) k
-          ) new_k ss in
+          List.iter (fun s ->
+            call_rec_all_relax over n s suf
+              (fun n suff -> add_one over relax safe n suff)) ss in
 
         (* Force first edge to be a relaxed one *)
-        let add_first rs k =
-          List.fold_left ( fun k r ->
-            call_rec_all_relax true n r [] (add_one true relax safe) k
-          ) k rs in
+        let add_first rs =
+          List.iter (fun r ->
+            call_rec_all_relax true n r []
+              (fun n suff -> add_one true relax safe n suff)) rs in
 
         (* Function `all_relax` entry point depends on
            if `prefix` is empty. *)
-        if is_empty_list prefix then add_first relax k
-        else add_one false relax safe n [] k in
+        if is_empty_list prefix then add_first relax
+        else add_one false relax safe n [] in
 
      (* New relax that does not enforce the first edge to be a relax *)
 
       (* ***************************************************** *)
       (* As a safety check, generate cycles with no relaxation *)
       (* ***************************************************** *)
-      let rec no_relax ss n suf k =
+      let rec no_relax ss n suf =
         (* Partially apply function `call_rec_base` *)
-        let call_rec_no_relax = call_rec_base prefix (f []) aset po_safe ~reject:reject in
-        List.fold_left (fun k s ->
-          call_rec_no_relax true n s suf (no_relax safe) k
-        ) k ss in
+        let call_rec_no_relax =
+          call_rec_base prefix
+            (fun po_safe suff -> push [] po_safe suff)
+            aset po_safe ~reject:reject in
+        List.iter (fun s ->
+          call_rec_no_relax true n s suf
+            (fun n suff -> no_relax safe n suff)) ss in
 
       (* *************************************************** *)
       (* Function `zyva` starts after all the `let`-bindings *)
       (* *************************************************** *)
-      fun k ->
-        if is_empty_list relax then no_relax safe n [] k
-        else if O.mix && O.max_relax < 1 then k (* Let us stay logical *)
-        else if O.mix && O.max_relax > 1 then all_relax k
-        else choose_relax relax k
+      if is_empty_list relax then no_relax safe n []
+      else if O.mix && O.max_relax < 1 then () (* Let us stay logical *)
+      else if O.mix && O.max_relax > 1 then all_relax
+      else choose_relax relax
       (* END of overall `zyva` *)
 
     let all_int l = List.for_all is_int l
@@ -706,20 +712,45 @@ module Make(C:Builder.S)
             pss)
       rej
 
-    let last_check_call rej aset f rs po_safe res k =
-      if is_empty_list res then k else
-          let lst = Misc.last res in
-          if can_precede aset po_safe lst res then
-            let es = List.map snd res in
-            let le = List.flatten es in
-            try
-              if
-                (match O.choice with
-                | Default| Sc | Ppo | MixedCheck -> true
-                | Thin | Free | Uni | Critical | Transitive |Total -> false) &&
-                (count_ext le=1 || all_int le || count_changes le < 2) then k
-              else begin
-                  let ok = (* Check for rejected sequenes that span over cycle "cut" *)
+    type queued_candidate =
+      {
+        edges : C.E.edge list;
+        relax : C.R.relax list;
+        safe : C.R.relax list;
+      }
+
+    (* Consumer-side core function.
+       - `emit_cycle` is provided by `D.all`, via the generator callback
+       `(fun emit_cycle acc -> ...)` in `do_gen`.
+       - `cand` is the candidate cycle.
+       - `acc` is the carrying accumulator, that contain metadata
+         for the entire searching process. *)
+    let cycle_generator emit_cycle cand acc =
+      (* We only build the `mk_info` that provides
+       extra `relax` and `safe` prelude in the generated tests *)
+      let mk_info _es =
+        let info =
+          [
+            "Relax", pp_relax_list cand.relax;
+            "Safe", pp_relax_list cand.safe;
+          ] in
+        info, C.R.Set.of_list cand.relax in
+      emit_cycle cand.edges mk_info D.no_name D.no_scope acc
+
+    let last_check_call rej aset rs po_safe res =
+      if not (is_empty_list res) then
+        let lst = Misc.last res in
+        if can_precede aset po_safe lst res then
+          let es = List.map snd res in
+          let le = List.flatten es in
+          try
+            if
+              (match O.choice with
+              | Default| Sc | Ppo | MixedCheck -> true
+              | Thin | Free | Uni | Critical | Transitive |Total -> false) &&
+              (count_ext le=1 || all_int le || count_changes le < 2) then None
+            else begin
+                let ok = (* Check for rejected sequenes that span over cycle "cut" *)
                   let rej = (* Keep non-trivial edge sequences only *)
                     List.filter
                       (function
@@ -733,20 +764,14 @@ module Make(C:Builder.S)
                        List.fold_left (fun  k xs -> max k (List.length xs)) 0 rej in
                      let pss = Misc.cuts max_sz le in
                      not (substring_spanp rej pss) in
-                if ok then
-                  let mk_info _es =
-                    let ss = build_safe rs res in
-                    let info =
-                      [
-                        "Relax",pp_relax_list rs;
-                        "Safe", pp_relax_list ss;
-                      ] in
-                    info,C.R.Set.of_list rs in
-                  f le mk_info D.no_name D.no_scope k
-                else k
-              end
-            with (Normaliser.CannotNormalise _) -> k
-          else k
+              if ok then
+                let safe = build_safe rs res in
+                Some { edges = le; relax = rs; safe; }
+              else None
+            end
+          with (Normaliser.CannotNormalise _) -> None
+        else None
+      else None
 
     let rec prefixp xs ys =
       match xs,ys with
@@ -793,10 +818,33 @@ module Make(C:Builder.S)
        - `safe` is all the safe edges that are used to build a cycle.
        - `reject` is the edges that are supposed to be rejected.
        - `n` the counter for how many edges in the cycle.
-       - `f` the function that checks the validity of the cycle
-       - `k` is the accumulator. *)
-    let zyva_prefix prefixes aset relax safe reject n f k =
-      List.fold_left ( fun k pref -> zyva pref aset relax safe reject n f k ) k prefixes
+       - `push` enqueues validated candidate cycles for consumption. *)
+    let zyva_prefix prefixes aset relax safe reject n push =
+      List.iter (fun pref -> zyva pref aset relax safe reject n push) prefixes
+
+    (* `D.all` supplies the real cycle emitter and the initial dumper
+       accumulator. `zyva_prefix` acts as the producer of candidate cycles
+       and enqueues them. The consumer thread owns the accumulator `acc`
+       and applies `emit_cycle`. *)
+    let search_and_generate_cycles emit_cycle acc prefixes aset relax safe rej n =
+      let consumer =
+        CandidateCycleConsumer.create (cycle_generator emit_cycle) acc in
+      try
+        let push_candidate rs po_safe res =
+          match last_check_call rej aset rs po_safe res with
+          | Some cand -> CandidateCycleConsumer.push consumer cand
+          | None -> () in
+        (* Generate all the candidate cycles then inform no more via
+           calling `finish`. *)
+        zyva_prefix prefixes aset relax safe rej n push_candidate ;
+        CandidateCycleConsumer.finish consumer
+      with e ->
+        CandidateCycleConsumer.close consumer ;
+        begin
+          try ignore (CandidateCycleConsumer.join consumer)
+          with _ -> ()
+        end ;
+        raise e
 
     let do_gen relax safe rej n =
       let sset = C.R.Set.of_list safe in
@@ -805,9 +853,8 @@ module Make(C:Builder.S)
       let rej = List.map (fun a -> edges_of a) rej in
       D.all
         ~check:(last_minute rej)
-        (fun f ->
-          zyva_prefix prefixes aset relax safe rej n
-            (last_check_call rej aset f))
+        (fun emit_cycle acc ->
+          search_and_generate_cycles emit_cycle acc prefixes aset relax safe rej n)
 
     let debug_rs chan rs =
       List.iter (fun r -> fprintf chan "%s\n" (pp_relax r)) rs
