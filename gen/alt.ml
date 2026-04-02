@@ -737,41 +737,43 @@ module Make(C:Builder.S)
         info, C.R.Set.of_list cand.relax in
       emit_cycle cand.edges mk_info D.no_name D.no_scope acc
 
-    let last_check_call rej aset rs po_safe res =
-      if not (is_empty_list res) then
-        let lst = Misc.last res in
-        if can_precede aset po_safe lst res then
-          let es = List.map snd res in
-          let le = List.flatten es in
-          try
-            if
-              (match O.choice with
-              | Default| Sc | Ppo | MixedCheck -> true
-              | Thin | Free | Uni | Critical | Transitive |Total -> false) &&
-              (count_ext le=1 || all_int le || count_changes le < 2) then None
-            else begin
-                let ok = (* Check for rejected sequenes that span over cycle "cut" *)
-                  let rej = (* Keep non-trivial edge sequences only *)
-                    List.filter
-                      (function
-                       | []|[_] -> false
-                       | _::_::_ -> true)
-                      rej  in
-                  match rej with
-                  | [] -> true
-                  | _::_ ->
-                     let max_sz =
-                       List.fold_left (fun  k xs -> max k (List.length xs)) 0 rej in
-                     let pss = Misc.cuts max_sz le in
-                     not (substring_spanp rej pss) in
-              if ok then
-                let safe = build_safe rs res in
-                Some { edges = le; relax = rs; safe; }
-              else None
-            end
-          with (Normaliser.CannotNormalise _) -> None
-        else None
-      else None
+    let last_check_call rej aset relax po_safe candidate_cycle =
+      match candidate_cycle with
+      | [] -> None
+      | candidate_cycle ->
+          let edges = List.map snd candidate_cycle |> List.flatten in
+          (* Keep non-trivial edge sequences only *)
+          let rej = List.filter ( function | [] | [_] -> false | _::_::_ -> true) rej
+          (* Wrap the reject list, `rej` into Some with the maximum size of all rejects *)
+            |> (function
+              | [] -> None
+              | rej ->
+                  let max_sz =
+                    List.fold_left
+                      (fun k xs -> max k (List.length xs)) 0 rej in
+                  Some (rej,max_sz)) in
+          (* if last relaxation in `candidate_cycle` can precede the first *)
+          if can_precede aset po_safe (Misc.last candidate_cycle) candidate_cycle
+          && ( match O.choice with
+            | Default| Sc | Ppo | MixedCheck ->
+                (* rule out cycle:
+                  - only one external communication edges
+                  - all internal communication edges
+                  - only have one location *)
+                not ( count_ext edges = 1
+                      || all_int edges
+                      || count_changes edges < 2 )
+            | Thin | Free | Uni | Critical | Transitive |Total -> true )
+          (* if the cycle, `edges`, is NOT rejected by `rej` *)
+          && Option.map ( fun (rej,max_sz) ->
+                let pss = Misc.cuts max_sz edges in
+                not (substring_spanp rej pss)
+            ) rej
+            |> Option.value ~default:true
+          then
+            let safe = build_safe relax candidate_cycle in
+            Some { edges; relax; safe; }
+          else None
 
     let rec prefixp xs ys =
       match xs,ys with
