@@ -667,18 +667,13 @@ module Make(C:Builder.S)
 
     let all_int l = List.for_all is_int l
 
-    let count_e ce =
-      List.fold_left ( fun ce e -> if is_int e then ce else ce + 1 ) ce
+    let count_ext es =
+      List.fold_left ( fun ce e ->
+        if is_int e then ce else ce + 1 ) 0 es
 
-
-    let count_ext es = count_e 0 es
-
-    let change_loc e = Code.is_diff_loc @@ loc_sd e
-
-    let count_p p =
-      List.fold_left ( fun acc x -> if p x then acc + 1 else acc ) 0
-
-    let count_changes = count_p change_loc
+    let count_changes =
+      List.fold_left ( fun acc x ->
+        if Code.is_diff_loc @@ loc_sd x then acc + 1 else acc ) 0
 
     let build_safe r0 es =
       let rs =
@@ -686,23 +681,22 @@ module Make(C:Builder.S)
       let rs = RelaxSet.diff rs (RelaxSet.of_list r0) in
       RelaxSet.elements rs
 
-    exception Result of bool
-
 (* Is xs a prefix of s@p ? *)
 
     let prefix_spanp xs (p,s) =
       let rec is_prefix xs ys = match xs,ys with
-        | [],_ -> raise (Result true)
-        | _::_,[] -> xs (* xs -> what is still to be matched *)
+        | [],_ -> Some []
+        | _::_,[] -> Some xs (* xs -> what is still to be matched *)
         | x::xs,y::ys ->
            if C.E.compare x y = 0 then is_prefix xs ys
-           else raise (Result false) in
-      try
-        let xs = is_prefix xs s in
-        match is_prefix xs p with
-        | [] -> true (* xs and s@p are equal! *)
-        |  _::_ -> false (* xs larger.. *)
-      with Result b -> b
+           else None in
+      match is_prefix xs s with
+      | None -> false
+      | Some [] -> true
+      | Some xs ->
+          match is_prefix xs p with
+          | Some [] -> true (* xs and s@p are equal! *)
+          | Some (_::_) | None -> false (* xs larger or mismatch *)
 
     let substring_spanp rej pss =
       List.exists
