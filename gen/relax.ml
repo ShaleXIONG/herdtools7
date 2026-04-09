@@ -26,7 +26,6 @@ module type S = sig
   type relax =
 (* Sequence of edges (eg Cumulativity) *)
     | ERS of edge list
-    | PPO
 
   val ac_fence : fence -> sd -> extr -> extr -> relax
   val bc_fence : fence -> sd -> extr -> extr -> relax
@@ -103,11 +102,9 @@ and type edge = E.edge
 
         type relax =
           | ERS of edge list
-          | PPO
 
         let edges_of r = match r with
         | ERS es -> es
-        | PPO -> assert false
 
         let edges_ofs = Util.List.concat_map edges_of
 
@@ -122,9 +119,6 @@ and type edge = E.edge
             end
 
         let compare r1 r2 = match r1,r2 with
-        | PPO,PPO -> 0
-        | PPO,ERS _ -> -1
-        | ERS _,PPO -> 1
         | ERS l1,ERS l2 -> compare_edges l1 l2
 
 
@@ -158,7 +152,6 @@ and type edge = E.edge
                    sprintf "BC%s" (pp_edge e)
           | ERS es ->
               sprintf "[%s]" (String.concat "," (List.map pp_edge es))
-          | PPO -> "PPO"
 
         let pp_relax = internal_pp_relax false
 
@@ -190,7 +183,6 @@ and type edge = E.edge
                 Code.fold_sd wildcard
                   (fun sd k -> f (bc_dp dpw sd (Dir W)) k)
                   k) k in
-          let k = f PPO k in
           k
 
         let iter_relax wildcard = Misc.fold_to_iter (fold_relax wildcard)
@@ -219,9 +211,8 @@ and type edge = E.edge
 (*************************************************************)
 (* Expansion of irrelevant direction specifications in edges *)
 (*************************************************************)
-        let rec do_expand_relax ppo r f = match r with
+        let do_expand_relax _ppo r f = match r with
         | ERS es -> E.expand_edges es (fun es -> f (ERS es))
-        | PPO  -> ppo (fun r -> do_expand_relax ppo r f)
 
         let expand_relaxs ppo rs =
           let expand_relax r = do_expand_relax ppo r Misc.cons in
@@ -350,8 +341,17 @@ and type edge = E.edge
           ) relaxes
 
         let parse_expand_relax ?(ppo=(fun _ k -> k)) str =
+          let unfold_ppo () =
+            let relaxs = ppo Misc.cons [] in
+            begin match relaxs with
+            | [] -> Warn.fatal "Bad relax: PPO"
+            | _ -> ()
+            end ;
+            expand_relaxs ppo relaxs
+            |> relax_list_to_choice in
           match str with
           (* Directly unfold macro *)
+          | "PPO" -> unfold_ppo ()
           | "allRR" -> allR Diff R
           | "allRW" -> allR Diff W
           | "allWR" -> allW Diff R
@@ -559,5 +559,4 @@ and type edge = E.edge
                 Set.of_list rs
             | _,_ -> Set.empty
             end
-        | _,_ -> assert false
       end

@@ -88,9 +88,7 @@ module Make(O:Config)(C:sig val eieio : bool end) : XXXCompile_gen.S =
       do_ppo f
         (if ppoext then
           do_ppo
-            (fun r k -> match r with
-            | ERS rs -> f (ERS (rs@[plain_edge (Rf Ext)])) k
-            | PPO -> assert false)
+            (fun (ERS rs) k -> f (ERS (rs@[plain_edge (Rf Ext)])) k)
             k
         else k)
 
