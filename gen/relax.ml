@@ -152,7 +152,6 @@ and type edge = E.edge
 (* Fold over all relaxations *)
 
         let fold_relax wildcard f k =
-          let k = E.fold_edges (fun e -> f [e]) k in
           let k =
             F.fold_cumul_fences
               (fun fe k ->

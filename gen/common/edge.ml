@@ -77,11 +77,7 @@ module type S = sig
   val plain_edge : tedge -> edge
 
   val fold_atomo : (atom option -> 'a -> 'a) -> 'a -> 'a
-  val fold_mixed : (atom option -> 'a -> 'a) -> 'a -> 'a
   val fold_atomo_list : atom option list -> (atom option -> 'a -> 'a) -> 'a -> 'a
-
-  val fold_edges : (edge -> 'a -> 'a) -> 'a -> 'a
-  val iter_edges : (edge -> unit) -> unit
 
   val pp_tedge : tedge -> string
   val pp_atom_option : atom option -> string
@@ -185,7 +181,6 @@ and module RMW = A.RMW = struct
   let do_strict_overlap = Cfg.variant Variant_gen.MixedStrictOverlap
   let wildcard = Cfg.wildcard
 
-  let debug = false
   open Code
 
   type fence = F.fence
@@ -220,10 +215,6 @@ and module RMW = A.RMW = struct
   let set_pteval ao p = match ao with
   | None -> fun _ -> p
   | Some a -> A.Value.set_pteval a p
-
-  let applies_atom ao d = match ao,d with
-  | (None,_)|(_,(Irr|NoDir)) -> true
-  | Some a,Dir d -> A.applies_atom a d
 
   let merge_atoms = A.merge_atoms
   let is_ifetch = A.is_ifetch
@@ -283,33 +274,18 @@ and module RMW = A.RMW = struct
 
   let plain_edge e = { a1=None; a2=None; edge=e; }
 
-  let pp_as_a = A.pp_as_a
   let pp_plain = A.pp_plain
 
   let pp_atom_option = function
     | None -> pp_plain
     | Some a -> pp_atom a
 
-  let pp_one_or_two pp_a e a1 a2 = match e with
-  | Id -> pp_a a1
-  | _ -> sprintf "%s%s" (pp_a a1) (pp_a a2)
+  let pp_annotations edge a1 a2 = match edge, a1, a2 with
+  | Id, _, _ -> pp_atom_option a1
+  | _, None, None -> ""
+  | _, _, _ -> sprintf "%s%s" (pp_atom_option a1) (pp_atom_option a2)
 
-  let pp_aa e a1 a2 = match a1, a2 with
-  | None,None  when not (is_id e) -> ""
-  | _,_ -> pp_one_or_two pp_atom_option e a1 a2
-
-  let pp_a_ter = function
-    | None -> pp_plain
-    | Some a as ao ->
-        if ao = pp_as_a then "A"
-        else pp_atom a
-
-  let pp_aa_ter e a1 a2 = match a1,a2 with
-  | None,None  when not (is_id e) -> ""
-  | _,_ -> pp_one_or_two pp_a_ter e a1 a2
-
-
-  let do_pp_tedge compat = function
+  let pp_tedge_compat compat = function
     | Rf UnspecCom -> sprintf "Rf"
     | Fr UnspecCom -> sprintf "Fr"
     | Ws UnspecCom -> if compat then sprintf "Ws" else sprintf "Co"
@@ -334,25 +310,20 @@ and module RMW = A.RMW = struct
     | Node W -> "Write"
     | Node R -> "Read"
 
-  let pp_tedge = do_pp_tedge false
+  let pp_tedge = pp_tedge_compat false
 
   let debug_edge e =
     sprintf
       "{edge=%s, a1=%s, a2=%s}"
-      (do_pp_tedge false e.edge) (pp_atom_option e.a1) (pp_atom_option e.a2)
+      (pp_tedge e.edge) (pp_atom_option e.a1) (pp_atom_option e.a2)
 
-  let do_pp_edge compat pp_atom_functor e =
-    let annotation = pp_atom_functor e.edge e.a1 e.a2 in
+  let pp_edge_compat compat e =
     let edge = match e.edge with
-    | Id -> ""
-    | _ -> do_pp_tedge compat e.edge in
-    edge ^ annotation
+      | Id -> ""
+      | _ -> pp_tedge_compat compat e.edge in
+    edge ^ pp_annotations e.edge e.a1 e.a2
 
-  let pp_edge_with_xx compat e = do_pp_edge compat pp_aa e
-
-  let pp_edge_with_a compat e = do_pp_edge compat pp_aa_ter e
-
-  let pp_edge e = pp_edge_with_xx false e
+  let pp_edge e = pp_edge_compat false e
 
   let compare_atomo = Option.compare A.compare_atom
 
@@ -442,7 +413,6 @@ let fold_tedges f r =
   r
 
   let fold_atomo f k = f None (A.fold_atom (fun a k -> f  (Some a) k) k)
-  let fold_mixed f k = A.fold_mixed (fun a k -> f  (Some a) k) k
   let fold_atomo_list aos f k = List.fold_right (fun a k -> f a k) aos k
 
   let overlap_atoms a1 a2 =
@@ -477,64 +447,6 @@ let fold_tedges f r =
     (* Situation is controlled by variant for other relaxations *)
         ok_non_rmw e a1 a2
 
-
-  let do_fold_edges fold_tedges f =
-   fold_atomo
-      (fun a1 ->
-        fold_atomo
-          (fun a2 ->
-            (fold_tedges
-               (fun te k ->
-                 match te with
-                 | Rmw rmw -> (* Allowed source and target atomicity for rmw *)
-                     if RMW.applies_atom_rmw rmw a1 a2 then begin
-                       let e =  {a1; a2; edge=te;} in
-                       f e k
-                     end else k
-                 | Id -> begin
-                     match a1,a2 with
-                     | Some x1,Some x2 when
-                         A.compare_atom x1 x2=0
-                         && not (is_ifetch a1) ->
-                         f { a1; a2;edge=te; } k
-                     | None,None ->
-                         let e =  { a1; a2;edge=te; } in
-                         f e k
-                     | _,_ -> k
-                 end
-                 | Insert _|Node _|Store  ->
-                     begin match a1,a2 with
-                     | None,None ->
-                         let e =  { a1; a2;edge=te; } in
-                         f e k
-                     | _,_ -> k
-                     end
-                 | _ ->
-                     let d1 = do_dir_src te
-                     and d2 = do_dir_tgt te in
-                     if
-                       applies_atom a1 d1 &&
-                       applies_atom a2 d2 &&
-                       (Misc.is_none (get_access_atom a1) &&
-                        Misc.is_none (get_access_atom a2)||
-                       ok_non_rmw te a1 a2)
-                     then
-                       f {a1; a2; edge=te;} k
-                     else begin
-                       if debug then
-                         eprintf "Not %s\n" (debug_edge  {a1; a2; edge=te;}) ;
-                       k
-                     end ))))
-
-  let fold_edges f = do_fold_edges fold_tedges f
-
-(* checked later... because rmw accepts all atomicity
-                     let d1 = do_dir_src te
-                     and d2 = do_dir_tgt te in
-                     if applies_atom a1 d1 && applies_atom a2 d2 then
-                       f {a1; a2; edge=te;} k
-                     else k *)
-
   let dir_tgt e = do_dir_tgt e.edge
   and dir_src e = do_dir_src e.edge
   and safe_dir e =
@@ -556,7 +468,7 @@ let fold_tedges f r =
       let old = Hashtbl.find ta lxm in
       assert (compare_atomo old a = 0) ;
     with Not_found ->
-      if not (is_ifetch a) then Hashtbl.add ta lxm a
+      Hashtbl.add ta lxm a
 
   let () = iter_atom (fun a -> add_lxm_atom (pp_atom_option a) a)
 
@@ -579,9 +491,6 @@ let fold_tedges f r =
 (* Lexing *)
 (**********)
 
-  let iter_edges = Misc.fold_to_iter fold_edges
-
-
   let t = Hashtbl.create 40000
 
   let add_lxm_edge lxm e =
@@ -600,17 +509,12 @@ let fold_tedges f r =
 (* Fill lexeme table *)
   let iter_ie = Misc.fold_to_iter (fold_ie wildcard)
 
-  let four_times_iter_edges compat iter_edges =
-    iter_edges  (fun e -> add_lxm_edge (pp_edge_with_xx compat e) e) ;
-    iter_edges
-      (fun e -> match e.a1,e.a2 with
-      | (None,(Some _ as a))
-      | ((Some _ as a),None) when a = pp_as_a ->
-          add_lxm_edge (pp_edge_with_a compat e) e
-      | _,_ -> ())
+  let iter_tedges compat fold =
+    Misc.fold_to_iter fold
+      (fun te -> add_lxm_edge (pp_tedge_compat compat te) (plain_edge te))
 
   let () =
-   four_times_iter_edges false iter_edges;
+   iter_tedges false fold_tedges;
    fold_sd_extr_extr wildcard
       (fun sd e1 e2 () ->
         add_lxm_edge
@@ -633,7 +537,7 @@ let fold_tedges f r =
     if not (Hashtbl.mem t "R") then add_lxm_edge "R" (plain_edge (Node R)) ;
     if not (Hashtbl.mem t "W") then add_lxm_edge "W" (plain_edge (Node W)) ;
 (*Co aka Ws and LxSx aka Rmw*)
-   four_times_iter_edges true (Misc.fold_to_iter (do_fold_edges fold_tedges_compat));
+   iter_tedges true fold_tedges_compat;
 (* Backward compatibility *)
     let instr_atom = A.instr_atom in
     if do_self && instr_atom != None then
@@ -678,17 +582,27 @@ let fold_tedges f r =
     in
     do_rec (String.length string)
 
-  let lookup_prefix string =
+  let lookup_edge_prefix string =
     fold_prefixes (fun prefix -> Hashtbl.find_opt t prefix) string
+
+  let lookup_atom_prefix string =
+    fold_prefixes (fun prefix -> Hashtbl.find_opt ta prefix) string
+
+  let annotation_edge a = { a1=a; a2=a; edge=Id }
+
+  let parse_annotation input =
+    match lookup_atom_prefix input with
+    | Some (annotation, "") -> Some [annotation_edge annotation]
+    | _ -> None
 
   (* Parse two annotations, for example `AL`. *)
   let parse_annotation_suffix string =
-    match lookup_prefix string with
+    match lookup_atom_prefix string with
     | None -> None
     | Some (left_annotation, suffix) ->
-        match lookup_prefix suffix with
+        match lookup_atom_prefix suffix with
         | Some (right_annotation, "") ->
-            Some (left_annotation, right_annotation)
+            Some [annotation_edge left_annotation; annotation_edge right_annotation]
         | _ -> None
 
   (* Parse `input`.
@@ -696,21 +610,20 @@ let fold_tedges f r =
      - For a composite input such as `PosWWLA`, return [`L`; `PosWW`; `A`].
      - Otherwise, return `None`. *)
   let internal_parse_edge input =
-    match lookup_prefix input with
-    | None -> None
+    match lookup_edge_prefix input with
+    | None -> parse_annotation input
     | Some (edge, "") -> Some [edge]
     (* If there is a suffix, it must parse as two annotations. *)
     | Some (edge, suffix) ->
         match parse_annotation_suffix suffix with
-        | Some (left_annotation, right_annotation) ->
-            Some [left_annotation; edge; right_annotation]
-        | None -> None
+        | Some annotations -> Some (annotations @ [edge])
+        | None -> parse_annotation input
 
   let parse_edge input =
     internal_parse_edge input
     |> function
       | Some [edge] -> edge
-      | Some [left_annotation; edge; right_annotation] ->
+      | Some [left_annotation; right_annotation; edge] ->
           {edge with a1 = left_annotation.a1; a2 = right_annotation.a2}
       | _ -> Warn.fatal "Bad edge: %s" input
 
