@@ -78,8 +78,7 @@ module Make(Co:Config)(F:Fence.S)(A:Atom.S) = struct
         |> ( function
           | [x] -> x
           | _ ->
-            Warn.user_error "`norm7` only accepts exactly one input cycle." )
-        |> R.edges_of in
+            Warn.user_error "`norm7` only accepts exactly one input cycle." ) in
       let base,es,_ = Norm.normalise_family (E.resolve_edges es) in
       let name =  N.mk_name base ?scope:None es in
       Printf.printf "%s: %s\n" name (E.pp_edges es)

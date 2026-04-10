@@ -63,7 +63,6 @@ module Make (Config:Config) (M:Builder.S) =
       (* Wrap the parsed segments in a top-level sequence before expansion. *)
       |> fun e -> Ast.Seq e
       |> M.R.parse_expand_relaxs ~ppo:M.ppo
-      |> List.map M.R.edges_of
       |> varatom_ess
 
     let zyva pp_rs =

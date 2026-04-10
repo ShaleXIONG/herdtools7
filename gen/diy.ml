@@ -84,14 +84,12 @@ let parse_fences fs = List.fold_right parse_fence fs []
      In canonical form this is "[Po,DpAddr]|Fre": top-level whitespace denotes
      a choice for backward compatibility. If an explicit top-level choice is
      present, an explicit comma still keeps a sequence together. The result is
-     a list of unfolded relaxations, each wrapped in `ERS` and containing one
-     or more edges in sequence. *)
+     a list of unfolded relaxations, each represented as one or more edges in
+     sequence. *)
   let parse_argument input_argument =
     parse_argument_ast input_argument
     |> parse_expand_relaxs ~ppo:C.ppo
-    |> List.map edges_of
     |> varatom_ess
-    |> List.map ( fun edges -> ERS edges )
     |> remove_invalid_relaxes
 
   module AltConfig = struct
@@ -144,7 +142,7 @@ let parse_fences fs = List.fold_right parse_fence fs []
     end ;
     M.gen ~relax:lr ~safe:ls ~reject:rl n
 
-  let er e = ERS [plain_edge e]
+  let er e = [plain_edge e]
 
   let gen_thin n =
     let lr = [er (Rf Int); er (Rf Ext)]
@@ -321,7 +319,7 @@ let () =
         let safe = Option.map M.parse_argument safe_list |> Option.value ~default:[] in
         List.map ( fun l ->
           List.map ( fun r ->
-            l,r,M.M.filter_check ~relax ~safe (Builder.R.edges_of l) (Builder.R.edges_of r)
+            l,r,M.M.filter_check ~relax ~safe l r
           ) rhs_unfold
         ) lhs_unfold
         |> List.flatten

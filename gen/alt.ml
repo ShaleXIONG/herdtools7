@@ -198,7 +198,7 @@ struct
           let r =
             not
               (List.exists
-                 (fun es -> C.R.Set.mem (C.R.ERS es) safes)
+                 (fun es -> C.R.Set.mem es safes)
                  cs) in
           r
       | _,_ -> true
@@ -302,7 +302,7 @@ module Make(C:Builder.S)
         |> String.concat list_sep
 
     let edges_ofs rs =
-      List.map (fun r -> (r, edges_of r)) rs
+      List.map (fun r -> (r, r)) rs
 
 (* Functional for recursive call of generators *)
 
@@ -423,7 +423,7 @@ module Make(C:Builder.S)
           let d2 =
             List.fold_right
               (fun (r,_) k -> match r with
-              | ERS [{edge=Po (sd,e1,e2); _}] -> SdDir2Set.add (sd,e1,e2) k
+              | [{edge=Po (sd,e1,e2); _}] -> SdDir2Set.add (sd,e1,e2) k
               | _ -> k)
               rs SdDir2Set.empty in
           if dbg then
@@ -676,7 +676,7 @@ module Make(C:Builder.S)
       let sset = C.R.Set.of_list safe in
       let rset = C.R.Set.of_list relax in
       let aset = C.R.Set.union sset rset in
-      let rej = List.map (fun a -> edges_of a) rej in
+      let rej = rej in
       D.all
         ~check:(last_minute rej)
         (fun f ->
@@ -731,7 +731,7 @@ module Make(C:Builder.S)
       fold_sd_dir2 (fun sd d1 d2 -> C.A.fold_cumul_fences (fun fe -> f fe sd d1 d2))
     let fold_cum f =  fold_cumul_fences f
 
-    let er e = ERS [plain_edge e]
+    let er e = [plain_edge e]
     let safe =
       let k = [] in
       let k = fold_ie (fun ie k -> er (Ws ie)::er (Fr ie)::k) k in k

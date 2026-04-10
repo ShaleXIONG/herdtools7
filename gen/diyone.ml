@@ -129,8 +129,7 @@ module Make(O:Config) (M:Builder.S) =
           |> ( function
             | [x] -> x
             | _ ->
-              Warn.user_error "`diyone7` only accepts exactly one input cycle." )
-          |> M.R.edges_of in
+              Warn.user_error "`diyone7` only accepts exactly one input cycle." ) in
         if O.verbose > 0 then
           Printf.eprintf
             "Parsed edges: %s\n" (M.E.pp_edges es) ;
