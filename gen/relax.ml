@@ -189,17 +189,6 @@ and type edge = E.edge
   so as to build a table of recognized relaxations.
  *)
 
-(* Lexeme table *)
-        let t = Hashtbl.create 101
-
-(* Fill up lexeme table *)
-        let () =
-          iter_relax E.wildcard
-            (fun e ->
-              let pp = internal_pp_relax true e in
-              Hashtbl.add t pp e);
-          ()
-
 (*************************************************************)
 (* Expansion of irrelevant direction specifications in edges *)
 (*************************************************************)
@@ -332,6 +321,28 @@ and type edge = E.edge
               if is_valid then Some relax else None
           ) relaxes
 
+(* Macro lookup table. *)
+        let t = Hashtbl.create 101
+
+(* Build the macro lookup table. *)
+        let () =
+          iter_relax E.wildcard
+            (fun e ->
+              let pp = internal_pp_relax true e in
+              Hashtbl.add t pp (Ast.One e)) ;
+          List.iter
+            (fun (name, macro) -> Hashtbl.add t name macro)
+            [
+              "allRR", allR Diff R;
+              "allRW", allR Diff W;
+              "allWR", allW Diff R;
+              "allWW", allW Diff W;
+              "someRR", someR Diff R;
+              "someRW", someR Diff W;
+              "someWR", someW Diff R;
+              "someWW", someW Diff W;
+            ]
+
         let parse_expand_relax ?(ppo=(fun _ k -> k)) str =
           let unfold_ppo () =
             let relaxs = ppo Misc.cons [] in
@@ -344,21 +355,12 @@ and type edge = E.edge
           match str with
           (* Directly unfold macro *)
           | "PPO" -> unfold_ppo ()
-          | "allRR" -> allR Diff R
-          | "allRW" -> allR Diff W
-          | "allWR" -> allW Diff R
-          | "allWW" -> allW Diff W
-          | "someRR" -> someR Diff R
-          | "someRW" -> someR Diff W
-          | "someWR" -> someW Diff R
-          | "someWW" -> someW Diff W
           | str ->
-            let relax = try [E.parse_edge str]
-            (* For backward compatibility, also accept the legacy pretty-printed
-               names recorded in the special table `t`. *)
-            with _ -> try Hashtbl.find t str
-            with Not_found -> Warn.fatal "Bad relax: %s" str in
-            [relax]
+              match Hashtbl.find_opt t str with
+              | Some relax -> relax
+              | None ->
+                  try Ast.One [E.parse_edge str]
+                  with _ -> Warn.fatal "Bad relax: %s" str
           (* expand the wildcard edges and annotations *)
           |> expand_relaxs ppo
           |> relax_list_to_choice
