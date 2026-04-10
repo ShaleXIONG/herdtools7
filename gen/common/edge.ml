@@ -662,12 +662,62 @@ let fold_tedges f r =
     try List.assoc s fences_pp
     with Not_found -> Warn.fatal "%s is not a fence" s
 
-  let parse_edge s =
-    try Hashtbl.find t s
-    with Not_found -> Warn.fatal "Bad edge: %s" s
+  (* Explore prefixes from longest to shortest until `func` returns `Some ..`.
+     For example, given the input `"PosWRPA"`, it applies
+     `func "PosWRPA"`, then `func "PosWRP"`, and so on, until `func`
+     returns `Some result`. The helper then returns that result together
+     with the untouched suffix, for example `Some (result, "PA")`. *)
+  let fold_prefixes func string =
+    let rec do_rec i =
+      if i <= 0 then None
+      else
+        let prefix = String.sub string 0 i in
+        match func prefix with
+        | Some x -> Some (x, (String.sub string i (String.length string - i)))
+        | None -> do_rec (i - 1)
+    in
+    do_rec (String.length string)
+
+  let lookup_prefix string =
+    fold_prefixes (fun prefix -> Hashtbl.find_opt t prefix) string
+
+  (* Parse two annotations, for example `AL`. *)
+  let parse_annotation_suffix string =
+    match lookup_prefix string with
+    | None -> None
+    | Some (left_annotation, suffix) ->
+        match lookup_prefix suffix with
+        | Some (right_annotation, "") ->
+            Some (left_annotation, right_annotation)
+        | _ -> None
+
+  (* Parse `input`.
+     - For an edge-only input such as `PosWW`, return the singleton list [`PosWW`].
+     - For a composite input such as `PosWWLA`, return [`L`; `PosWW`; `A`].
+     - Otherwise, return `None`. *)
+  let internal_parse_edge input =
+    match lookup_prefix input with
+    | None -> None
+    | Some (edge, "") -> Some [edge]
+    (* If there is a suffix, it must parse as two annotations. *)
+    | Some (edge, suffix) ->
+        match parse_annotation_suffix suffix with
+        | Some (left_annotation, right_annotation) ->
+            Some [left_annotation; edge; right_annotation]
+        | None -> None
+
+  let parse_edge input =
+    internal_parse_edge input
+    |> function
+      | Some [edge] -> edge
+      | Some [left_annotation; edge; right_annotation] ->
+          {edge with a1 = left_annotation.a1; a2 = right_annotation.a2}
+      | _ -> Warn.fatal "Bad edge: %s" input
 
   let parse_edges s =
     pre_parse_string s |> List.map parse_edge
+
+
 
   let pp_edges es = String.concat " " (List.map pp_edge es)
 
