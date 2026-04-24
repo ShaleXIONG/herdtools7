@@ -341,30 +341,40 @@ module Make(C:Builder.S)
          - `before` merges with concrete if edge matches.
          - `after` merges with concrete if edge matches.
          - `before` pairing with `after` fails. *)
-	    let merge_predicate next exist =
-	      (* Separate the tailing `after` predicate from `next` *)
-	      let after =
-	        List.fold_right ( fun e (after,seen_non_after) ->
-	          match seen_non_after, C.E.get_predicate e = Some C.E.After with
-	          | true, _ | _, false -> after, true
-	          | false, true -> e :: after, false ) next ([],false)
-	        |> fst in
-	      (* Separate the beginning `before` predicate from `exist` *)
-	      let before =
-	        List.fold_left ( fun (before,seen_non_before) e ->
-	          match seen_non_before, C.E.get_predicate e = Some C.E.Before with
-	          | true, _ | _, false -> before, true
-	          | false, true -> e :: before, false ) ([],false) exist
-	        |> fst |> List.rev in
-      (* Merge `after` and `before` if find *)
-      match after, before with
-      | [], [] -> true
-      | after, [] ->
-          starts_with C.E.equal_edge_atoms exist after
-      | [], before ->
-          ends_with C.E.equal_edge_atoms next before
-      (* error on `after` hits `before` predicate *)
-      | _, _ -> false
+	    let merge_predicate =
+        (* A persistent memo between all `merge_predicate` call *)
+	      let memo = Hashtbl.create 1024 in
+	      let get_predicates edges =
+	        match Hashtbl.find_opt memo edges with
+	        | Some predicates -> predicates
+	        | None ->
+	            let after =
+	              List.fold_right ( fun e (after,seen_non_after) ->
+	                match seen_non_after, C.E.get_predicate e = Some C.E.After with
+	                | true, _ | _, false -> after, true
+	                | false, true -> e :: after, false ) edges ([],false)
+	              |> fst in
+	            let before =
+	              List.fold_left ( fun (before,seen_non_before) e ->
+	                match seen_non_before, C.E.get_predicate e = Some C.E.Before with
+	                | true, _ | _, false -> before, true
+	                | false, true -> e :: before, false ) ([],false) edges
+	              |> fst |> List.rev in
+	            let predicates = (after,before) in
+	            Hashtbl.add memo edges predicates ;
+	            predicates in
+	      fun next exist ->
+	        let after,_ = get_predicates next
+	        and _,before = get_predicates exist in
+	        (* Merge `after` and `before` if find *)
+	        match after, before with
+	        | [], [] -> true
+	        | after, [] ->
+	            starts_with C.E.equal_edge_atoms exist after
+	        | [], before ->
+	            ends_with C.E.equal_edge_atoms next before
+	        (* error on `after` hits `before` predicate *)
+	        | _, _ -> false
 
     (* List.is_empty only supports for ocaml 5.1 afterwards *)
     let is_empty_list l = (l = [])
