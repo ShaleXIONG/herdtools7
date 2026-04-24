@@ -405,8 +405,10 @@ module Make(C:Builder.S)
             (FilterImpl.can_precede safes po_safe) (snd next) exist_edges
 	      | _ -> true
 
+    let edge_list_of_relax r = (r, edges_of r)
+
     let edges_of_relax_list rs =
-      List.map (fun r -> (r, edges_of r)) rs
+      List.map edge_list_of_relax rs
 
 (* Functional for recursive call of generators *)
 
@@ -702,11 +704,10 @@ module Make(C:Builder.S)
       (* ***************************************************** *)
       (* As a safety check, generate cycles with no relaxation *)
       (* ***************************************************** *)
+      let call_rec_no_relax =
+        call_rec_base prefix (f [])
+          aset po_safe ~reject:reject in
       let rec no_relax n suf k =
-        (* Partially apply function `call_rec_base` *)
-	        let call_rec_no_relax =
-	          call_rec_base prefix (f [])
-	            aset po_safe ~reject:reject in
         List.fold_left (fun k pred ->
             call_rec_no_relax true n pred suf no_relax k)
           k (lookup_safe_predecessors suf) in
