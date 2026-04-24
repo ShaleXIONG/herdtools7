@@ -492,6 +492,9 @@ module Make(C:Builder.S)
       let rsuff = List.split rsuff |> snd |> List.concat in
       not (List.exists (fun rl -> is_prefix rsuff rl) rl)
 
+    let test_generator_calls = ref 0
+    let test_generator_time = ref 0.0
+
 	    (* This function is used by `zyva`. For non-Sc/Transitive modes, the
 	       predecessor table in `zyva` has already filtered exact predecessor pairs.
 	       This means, `r::suff` will be valid. So only dynamic compatibility
@@ -537,13 +540,26 @@ module Make(C:Builder.S)
 	            if O.verbose > 2 then
 	            eprintf "TRY: '%s'\n"
 	              (C.E.pp_edges (List.flatten (List.map snd candidate_cycle))) ;
-	            try test_generator po_safe candidate_cycle k
+	            incr test_generator_calls ;
+	            let t0 = Unix.gettimeofday () in
+	            try
+                let k = test_generator po_safe candidate_cycle k in
+                test_generator_time :=
+                  !test_generator_time +. (Unix.gettimeofday () -. t0) ;
+                k
             (* `test_generator` fails, however, surpresses some expected error *)
-            with Misc.Exit -> k
+            with Misc.Exit ->
+                test_generator_time :=
+                  !test_generator_time +. (Unix.gettimeofday () -. t0) ;
+                k
             | Misc.Fatal msg | Misc.UserError msg ->
+                test_generator_time :=
+                  !test_generator_time +. (Unix.gettimeofday () -. t0) ;
                 eprintf "try test generator but fail: '%s'\n" msg ;
                 k
 	            | e ->
+	                test_generator_time :=
+                    !test_generator_time +. (Unix.gettimeofday () -. t0) ;
 	                eprintf "unexpected error in test generator: '%s'\n"
 	                  (Printexc.to_string e) ;
 	                raise e
@@ -877,6 +893,8 @@ module Make(C:Builder.S)
         k prefixes
 
     let do_gen relax safe rej n =
+      test_generator_calls := 0 ;
+      test_generator_time := 0.0 ;
       let sset = C.R.Set.of_list safe in
       let rset = C.R.Set.of_list relax in
       let aset = C.R.Set.union sset rset in
@@ -887,7 +905,13 @@ module Make(C:Builder.S)
         ~check:(last_minute rej)
         (fun f ->
           zyva_prefix prefixes aset relax_precede_table relax safe_precede_table safe rej n
-            (last_check_call rej aset f))
+            (last_check_call rej aset f)) ;
+      eprintf
+        "test_generator: calls=%d time=%.6fs avg=%.6fs\n%!"
+        !test_generator_calls
+        !test_generator_time
+        (if !test_generator_calls = 0 then 0.0
+         else !test_generator_time /. float_of_int !test_generator_calls)
 
     let debug_rs chan rs =
       List.iter (fun r -> fprintf chan "%s\n" (pp_relax r)) rs
