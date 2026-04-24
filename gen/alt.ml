@@ -379,12 +379,24 @@ module Make(C:Builder.S)
     (* List.is_empty only supports for ocaml 5.1 afterwards *)
     let is_empty_list l = (l = [])
 
-	    let needs_merge next_edges exist_edges =
-	      match List.rev next_edges, exist_edges with
-	      | next_last::_, exist_first::_ ->
-	          C.E.get_predicate next_last = Some C.E.After ||
-	          C.E.get_predicate exist_first = Some C.E.Before
-	      | _ -> false
+	    let needs_merge =
+	      let memo = Hashtbl.create 1024 in
+	      let get_boundary_predicates edges =
+	        match Hashtbl.find_opt memo edges with
+	        | Some predicates -> predicates
+	        | None ->
+	            let predicates =
+	              match List.rev edges, edges with
+	              | last::_, first::_ ->
+	                  ( C.E.get_predicate last = Some C.E.After,
+	                    C.E.get_predicate first = Some C.E.Before )
+	              | _ -> false,false in
+	            Hashtbl.add memo edges predicates ;
+	            predicates in
+	      fun next_edges exist_edges ->
+	        let next_after,_ = get_boundary_predicates next_edges
+	        and _,exist_before = get_boundary_predicates exist_edges in
+	        next_after || exist_before
 
     let check_precede can_precede next_edges exist_edges =
       if O.verbose > 2 then
