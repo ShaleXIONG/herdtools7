@@ -238,9 +238,21 @@ type neon_opt = SIMD.atom
 type pair_idx = UnspecLoc
 
 type atom_acc =
+  (* The basic memory access with morello option `capa_opt` *)
   | Plain of capa_opt | Acq of capa_opt | AcqPc of capa_opt | Rel of capa_opt
-  | Atomic of atom_rw | Tag | CapaTag | CapaSeal | Pte of atom_pte | Neon of neon_opt
-  | Pair of pair_opt * pair_idx | Instr
+  (* atomic read and write *)
+  | Atomic of atom_rw
+  (* memory tag *)
+  | Tag | TagMismatch
+  (* morello *)
+  | CapaTag | CapaSeal
+  (* vmsa *)
+  | Pte of atom_pte
+  (* simd *)
+  | Neon of neon_opt
+  (* pair access *)
+  | Pair of pair_opt * pair_idx
+  | Instr
 
 let  plain = Plain None
 
@@ -447,6 +459,7 @@ let applies_atom (a,_) d =
   | Pte (Read|ReadAcq|ReadAcqPc),R
   | Instr, R
   | (Plain _|Atomic _|Tag|CapaTag|CapaSeal|Neon _|Pair _),(R|W)
+  | TagMismatch,R
     -> true
   (* special case for TTHM HA for read *)
   | Pte (Set p),R when WPTESet.mem HA p -> true
@@ -491,6 +504,7 @@ let is_tthm fields =
      | AcqPc o -> sprintf "Q%s" (pp_opt o)
      | Plain o -> sprintf "P%s" (pp_opt o)
      | Tag -> "T"
+     | TagMismatch -> "F"
      | CapaTag -> "Ct"
      | CapaSeal -> "Cs"
      | Pte p -> sprintf "Pte%s" (pp_atom_pte p)
@@ -550,7 +564,7 @@ let is_tthm fields =
    let fold_atom_rw f r = f PP (f PL (f AP (f AL r)))
 
    let fold_tag =
-     if do_tag then fun f r -> f Tag r
+     if do_tag then fun f r -> f TagMismatch (f Tag r)
      else fun _f r -> r
 
    let fold_morello =
@@ -626,7 +640,7 @@ let is_tthm fields =
 
    let worth_final (a,_) = match a with
      | Atomic _ -> true
-     | Acq _|AcqPc _|Rel _|Plain _|Tag|Instr
+     | Acq _|AcqPc _|Rel _|Plain _|Tag|TagMismatch|Instr
      | CapaTag|CapaSeal
      | Pte _|Neon _
      | Pair _
@@ -654,8 +668,8 @@ let is_tthm fields =
       (Plain None,(Some _ as sz)))
      -> Some (a,sz)
 (* No sizes for Pte and tags *)
-   | (((Pte _|Tag),_),(_,Some _))
-   | ((_,Some _),((Pte _|Tag),_)) ->
+   | (((Pte _|Tag|TagMismatch),_),(_,Some _))
+   | ((_,Some _),((Pte _|Tag|TagMismatch),_)) ->
        None
 (* Merge Pte *)
    | ((Pte (Read|ReadAcq),None),((Pte ReadAcq|Acq None),None))
@@ -737,6 +751,7 @@ let is_tthm fields =
 
    let atom_to_bank = function
    | Tag,None -> Code.Tag
+   | TagMismatch,_ -> Code.Ord
    (* TTHM feature only apply to ordinary R/W *)
    | Pte (Set p|SetRel p),None when is_tthm p -> Code.Ord
    | Pte (ReadHAAcq|ReadHAAcqPc),None -> Code.Ord
@@ -770,19 +785,19 @@ let overwrite_value v ao w = match ao with
 | None
 | Some
     ((Atomic _|Acq _|AcqPc _|Rel _|Plain _|
-    Tag|CapaTag|CapaSeal|Pte _|Neon _|Pair _|Instr),None)
+    Tag|TagMismatch|CapaTag|CapaSeal|Pte _|Neon _|Pair _|Instr),None)
   -> w (* total overwrite *)
 | Some ((Atomic _|Acq _|AcqPc _|Rel _|Plain _|Neon _|Instr),Some (sz,o)) ->
    ValsMixed.overwrite_value v sz o w
-| Some ((Tag|CapaTag|CapaSeal|Pte _|Pair _),Some _) ->
+| Some ((Tag|TagMismatch|CapaTag|CapaSeal|Pte _|Pair _),Some _) ->
     assert false
 
  let extract_value v ao = match ao with
   | None
   | Some
       ((Atomic _|Acq _|AcqPc _|Rel _|Plain _
-        |Tag|CapaTag|CapaSeal|Pte _|Neon _|Pair _|Instr),None) -> v
-  | Some ((Atomic _|Acq _|AcqPc _|Rel _|Plain _|Tag|CapaTag|CapaSeal|Neon _),Some (sz,o)) ->
+        |Tag|TagMismatch|CapaTag|CapaSeal|Pte _|Neon _|Pair _|Instr),None) -> v
+  | Some ((Atomic _|Acq _|AcqPc _|Rel _|Plain _|Tag|TagMismatch|CapaTag|CapaSeal|Neon _),Some (sz,o)) ->
      ValsMixed.extract_value v sz o
   | Some ((Pte _|Pair _|Instr),Some _) -> assert false
 
