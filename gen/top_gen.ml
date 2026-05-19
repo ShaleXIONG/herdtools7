@@ -849,12 +849,15 @@ let max_set = IntSet.max_elt
               F.forall_condition evts m flts
           | Cycle -> F.exists_condition ~is_pos:(not O.neg) f flts
           | Observe -> F.observe_condition in
+        let final = fc flts in
+        if O.cond <> Observe && F.is_trivially_true final then
+          Warn.warn_always "postcondition is trivially true" ;
         let obs =
           match O.cond with
           | Unicond | Cycle -> []
           | Observe -> F.location_list f flts in
         let i = if do_kvm then A.complete_init O.hexa initvals i else i in
-        (i,c,fc flts,env,obs),
+        (i,c,final,env,obs),
         (U.compile_prefetch_ios (List.length obsc) ios,
          U.compile_coms splitted)
   (* END of compile_cycle *)
