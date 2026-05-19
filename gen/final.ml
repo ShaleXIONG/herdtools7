@@ -79,6 +79,7 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
     val dump_constr : prop ConstrGen.constr -> string
 
     type final = prop ConstrGen.constr
+    val is_trivially_true : final -> bool
 
     type locations = (C.A.location, v, FaultType.No.t) LocationsItem.t
 
@@ -282,6 +283,10 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
 
     type prop = (C.A.location, v, FaultType.No.t) ConstrGen.prop
     type final = prop ConstrGen.constr
+    let is_trivially_true = function
+      | ForallStates (And [])
+      | ExistsState (And []) -> true
+      | _ -> false
 
     type locations = (C.A.location, v, FaultType.No.t) LocationsItem.t
 
