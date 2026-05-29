@@ -100,6 +100,9 @@ module type S = sig
   val parse_edges : string -> edge list
 
   val pp_edges : edge list -> string
+  val fold_annotation_lookup_table :
+    (string -> atom option -> 'a -> 'a) -> 'a -> 'a
+  val fold_edge_lookup_table : (string -> edge -> 'a -> 'a) -> 'a -> 'a
 
 (* Get source and target event direction,
    Returning Irr means that a Read OR a Write is acceptable,
@@ -149,8 +152,6 @@ module type S = sig
   module Set : MySet.S with type elt = edge
   module Map : MyMap.S with type key = edge
 
-(* Show some elements, for documentation *)
-  val show : ShowGen.t -> unit
 end
 
 
@@ -479,6 +480,9 @@ let fold_tedges f r =
 
   let () = iter_atom (fun a -> add_lxm_atom (pp_atom_option a) a)
 
+  let fold_annotation_lookup_table f k =
+    Hashtbl.fold f annotation_lookup_table k
+
   let parse_atom s =
     try Hashtbl.find annotation_lookup_table s
     with Not_found -> Warn.fatal "Bad atom: %s" s
@@ -521,13 +525,7 @@ let fold_tedges f r =
     add_lxm_edge "W" (plain_edge (Node W)) ;
     ()
 
-  let fold_pp_edges f =
-    Hashtbl.fold
-      (fun s e k ->
-        if e.a1=None && e.a2=None && e.edge <> Id then
-          f s k
-        else k)
-      edge_lookup_table
+  let fold_edge_lookup_table f k = Hashtbl.fold f edge_lookup_table k
 
   let parse_fence s =
     let fences_pp =
@@ -1140,26 +1138,4 @@ let fold_tedges f r =
         let compare = compare
       end)
 
-  let show =
-    let open ShowGen in
-    function
-      | Edges ->
-          let es = fold_pp_edges (fun s k -> s::k) [] in
-          let es = List.sort String.compare es in
-          List.iter (eprintf " %s") es ;
-          eprintf "\n%!"
-      | Annotations ->
-          let es =
-            fold_atomo
-              (fun ao k ->
-                if is_ifetch ao then k
-                else { edge=Id; a1=ao; a2=ao;}::k)
-              [] in
-          List.iter
-            (fun e -> eprintf " %s" (pp_edge e))
-            es ;
-          eprintf "\n%!"
-      | Fences ->
-          F.fold_all_fences (fun f () -> eprintf " %s" (F.pp_fence f)) () ;
-          eprintf "\n%!"
 end
