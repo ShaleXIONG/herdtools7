@@ -43,12 +43,9 @@ module type S = sig
   val extract_value : value -> atom option -> value
   val set_pteval :
     atom option -> Value.pte -> (unit -> string) -> Value.pte
-  val merge_atoms : atom -> atom -> atom option
   val instr_atom : atom option
   val is_ifetch : atom option -> bool
   val atom_to_bank : atom option -> SIMD.atom Code.bank
-  val strong : fence
-  val pp_fence : fence -> string
 
 (* edge proper *)
   type tedge =
@@ -86,15 +83,12 @@ module type S = sig
   val fold_edge_legacy_wildcards :
     (string -> edge list list -> 'a -> 'a) -> 'a -> 'a
 
-  val pp_tedge : tedge -> string
   val pp_atom_option : atom option -> string
 
-  val debug_edge : edge -> string
   val pp_edge : edge -> string
   val compare_atomo : atom option -> atom option -> int
   val compare : edge -> edge -> int
 
-  val parse_atom : string -> atom option
   val parse_atoms : string list -> atom option list
   val get_access_atom: atom option -> MachMixed.t option
 
@@ -119,8 +113,6 @@ module type S = sig
 
 (* Does source and target events have the same or different locations? *)
   val loc_sd : edge -> sd
-  val is_diff: edge -> bool
-
 (* Internal (same proc) or external edge (different procs) *)
   val get_ie : edge -> ie
 (* More detailed *)
@@ -135,9 +127,6 @@ module type S = sig
 
 (* Can e1 target event direction be the same as e2 source event? *)
   val can_precede : edge -> edge -> bool
-
-(* Expansion of Irr directions *)
-  val expand_edges : edge list -> (edge list -> 'a -> 'a) -> 'a -> 'a
 
 (* Resolve Irr directions and unspecified atom *)
   val resolve_edges : edge list -> edge list
@@ -183,7 +172,6 @@ and module SIMD = A.SIMD
 and module Value = A.Value
 and type value = A.Value.v
 and module RMW = A.RMW = struct
-  let ()  = ignore (Cfg.naturalsize)
   let do_self = Cfg.variant Variant_gen.Self
   let do_mixed = Variant_gen.is_mixed Cfg.variant
   let do_kvm =  Variant_gen.is_kvm Cfg.variant
@@ -232,9 +220,6 @@ and module RMW = A.RMW = struct
   let atom_to_bank = function
     | None -> Ord
     | Some a -> A.atom_to_bank a
-
-  let strong = F.strong
-  let pp_fence = F.pp_fence
 
 (* edge proper *)
   type tedge =
@@ -295,47 +280,35 @@ and module RMW = A.RMW = struct
   | _, None, None -> ""
   | _, _, _ -> sprintf "%s%s" (pp_atom_option a1) (pp_atom_option a2)
 
-  let pp_communication_compat compat com ie =
-    let com = match com with
-    | Co when compat -> "Ws"
-    | _ -> pp_com com in
-    sprintf "%s%s" com (pp_ie ie)
-
-  let pp_tedge_compat compat = function
-    | Communication (com,ie) -> pp_communication_compat compat com ie
-    | Po (UnspecLoc,Irr,Irr) -> "Po"
+  let pp_tedge = function
+    | Communication (com,ie) -> sprintf "%s%s" (pp_com com) (pp_ie ie)
     | Po (sd,e1,e2) ->
       sprintf "Po%s%s%s" (pp_sd sd) (pp_extr e1) (pp_extr e2)
     | Fenced (f,sd,e1,e2) ->
-      sprintf "%s%s%s%s" (pp_fence f) (pp_sd sd) (pp_extr e1) (pp_extr e2)
-    | Dp (dp,UnspecLoc,Irr) -> sprintf "Dp%s" (F.pp_dp dp)
+      sprintf "%s%s%s%s" (F.pp_fence f) (pp_sd sd) (pp_extr e1) (pp_extr e2)
     | Dp (dp,sd,e) ->
       sprintf "Dp%s%s%s"(F.pp_dp dp) (pp_sd sd) (pp_extr e)
     | Hat -> "Hat"
-    | Rmw rmw-> RMW.pp_rmw compat rmw
+    | Rmw rmw-> RMW.pp_rmw false rmw
     | Leave c -> sprintf "%sLeave" (pp_com c)
     | Back c -> sprintf "%sBack" (pp_com c)
     | Id -> "Id"
-    | Insert f -> pp_fence f
+    | Insert f -> F.pp_fence f
     | Store -> "Store"
     | Node W -> "Write"
     | Node R -> "Read"
-
-  let pp_tedge = pp_tedge_compat false
 
   let debug_edge e =
     sprintf
       "{edge=%s, a1=%s, a2=%s}"
       (pp_tedge e.edge) (pp_atom_option e.a1) (pp_atom_option e.a2)
 
-  let pp_edge_compat compat e =
+  let pp_edge e =
     let edge = match e.edge with
-    | Id -> ""
-    | _ -> pp_tedge_compat compat e.edge in
+      | Id -> ""
+      | _ -> pp_tedge e.edge in
     let annotation = pp_annotations e.edge e.a1 e.a2 in
     edge ^ annotation
-
-  let pp_edge e = pp_edge_compat false e
 
   let compare_atomo = Option.compare A.compare_atom
 
@@ -387,28 +360,39 @@ and module RMW = A.RMW = struct
    are now macros, such as Dp**, are added to the relax macro table instead of
    this lexer table. *)
 let fold_tedges f r =
-  let r = fold_com (fun com r -> fold_ie (fun ie -> f (Communication (com,ie))) r) r in
-  let r = RMW.fold_rmw (fun rmw -> f (Rmw rmw)) r in
-  let r = fold_sd_extr_extr false (fun sd e1 e2 r -> f (Po (sd,e1,e2)) r) r in
-  let r = F.fold_all_fences (fun fe -> f (Insert fe)) r in
-  let r = f Store r in
-  let r =
-    F.fold_all_fences
-      (fun fe ->
-        fold_sd_extr_extr false
-          (fun sd e1 e2 -> f (Fenced (fe,sd,e1,e2)))) r in
-  let r =
-    F.fold_dpr
-      (fun dp -> fold_sd false (fun sd -> f (Dp (dp,sd,Dir R)))) r in
-  let r =
-    F.fold_dpw
-      (fun dp -> fold_sd false (fun sd -> f (Dp (dp,sd,Dir W)))) r in
-  let r = f Id r in
-  let r = f (Node R) (f (Node W) r) in
-  let r = f Hat r in
-  let r = fold_com (fun c r -> f (Leave c) r) r in
-  let r = fold_com (fun c r -> f (Back c) r) r in
   r
+  (* Communication edges. *)
+  |> fold_com
+    (fun com r -> fold_ie (fun ie -> f (Communication (com,ie))) r)
+  (* Atomic read-modify-write edges. *)
+  |> RMW.fold_rmw (fun rmw -> f (Rmw rmw))
+  (* Program-order edges. *)
+  |> fold_sd_extr_extr (fun sd e1 e2 r -> f (Po (sd,e1,e2)) r)
+  (* Fence insertion pseudo-edges. *)
+  |> F.fold_all_fences (fun fe -> f (Insert fe))
+  (* Store insertion pseudo-edge. *)
+  |> f Store
+  (* Concrete fence edges. *)
+  |> F.fold_all_fences
+    (fun fe ->
+      fold_sd_extr_extr
+        (fun sd e1 e2 -> f (Fenced (fe,sd,e1,e2))))
+  (* Dependency edges that target reads. *)
+  |> F.fold_dpr
+    (fun dp -> fold_sd (fun sd -> f (Dp (dp,sd,Dir R))))
+  (* Dependency edges that target writes. *)
+  |> F.fold_dpw
+    (fun dp -> fold_sd (fun sd -> f (Dp (dp,sd,Dir W))))
+  (* Identity edge for annotation. *)
+  |> f Id
+  (* Read/write node pseudo-edges. *)
+  |> f (Node R)
+  |> f (Node W)
+  (* Hat edge. *)
+  |> f Hat
+  (* Scope leave/back pseudo-edges. *)
+  |> fold_com (fun c r -> f (Leave c) r)
+  |> fold_com (fun c r -> f (Back c) r)
 
   let fold_atomo f k = f None (A.fold_atom (fun a k -> f  (Some a) k) k)
   let fold_atomo_list aos f k = List.fold_right (fun a k -> f a k) aos k
@@ -532,14 +516,10 @@ let fold_tedges f r =
     with Not_found ->
       Hashtbl.add edge_lookup_table lxm e
 
-(* Fill the primitive edge lexeme table. *)
-  let iter_tedges compat fold =
-    Misc.fold_to_iter fold
-      (fun te -> add_lxm_edge (pp_tedge_compat compat te) (plain_edge te))
-
   let () =
-    (* Preferred spellings use Co for write serialization. *)
-    iter_tedges false fold_tedges;
+    (* Fill the primitive edge lexeme table. *)
+    Misc.fold_to_iter fold_tedges
+      (fun te -> add_lxm_edge (pp_tedge te) (plain_edge te));
     add_lxm_edge "R" (plain_edge (Node R)) ;
     add_lxm_edge "W" (plain_edge (Node W)) ;
     ()
@@ -552,12 +532,11 @@ let fold_tedges f r =
         else k)
       edge_lookup_table
 
-  let fences_pp =
-    F.fold_all_fences
-      (fun f k -> (pp_fence f,f)::k)
-      []
-
   let parse_fence s =
+    let fences_pp =
+      F.fold_all_fences
+        (fun f k -> (F.pp_fence f,f)::k)
+        [] in
     try List.assoc s fences_pp
     with Not_found -> Warn.fatal "%s is not a fence" s
 
@@ -645,7 +624,6 @@ let fold_tedges f r =
   and set_src d e = { e with edge = do_set_src d e.edge ; }
 
   let loc_sd e = do_loc_sd e.edge
-  and is_diff e = do_is_diff e.edge
 
   let get_ie e = match e.edge with
   | Id |Po _|Dp _|Fenced _|Rmw _ -> Int
@@ -700,36 +678,8 @@ let fold_tedges f r =
   let can_precede x y = can_precede_dirs  x y && can_precede_atoms x y
 
 (*************************************************************)
-(* Expansion of irrelevant direction specifications in edges *)
+(* Add architecture-depended edge-related macros to macros table *)
 (*************************************************************)
-
-  let do_expand_edge e f acc =
-    match e.edge with
-    | Insert _|Store|Id|Node _
-    | Hat |Leave _|Back _
-      -> f e acc
-    | Communication _ -> f e acc
-    | Rmw _ -> f e acc
-    | Dp _ -> f e acc
-    | Po _ -> f e acc
-    | Fenced _ -> f e acc
-
-  let rec do_expand_edges es f suf = match es with
-  | [] -> f suf
-  | e::es ->
-      do_expand_edge e
-        (fun e k ->
-          try
-            let suf = match suf with
-            | [] -> [e]
-            | f::_ ->
-                if can_precede e f then e::suf
-                else raise Exit in
-            do_expand_edges es f suf k
-          with Exit -> k)
-
-  let expand_edges es f = do_expand_edges (List.rev es) f []
-
   let add_po_macros f k =
     let pp_po_macro sd d1 d2 = match sd,d1,d2 with
     | None,None,None -> "Po"
@@ -745,9 +695,9 @@ let fold_tedges f r =
 
   let add_fence_macros f k =
     let pp_fence_macro fe sd d1 d2 = match sd,d1,d2 with
-    | None,None,None -> sprintf "%s***" (pp_fence fe)
+    | None,None,None -> sprintf "%s***" (F.pp_fence fe)
     | _,_,_ -> sprintf "%s%s%s%s"
-        (pp_fence fe) (pp_sd_macro sd) (pp_dir_macro d1) (pp_dir_macro d2) in
+        (F.pp_fence fe) (pp_sd_macro sd) (pp_dir_macro d1) (pp_dir_macro d2) in
     F.fold_all_fences
       (fun fe k ->
         fold_sd_extr_extr_macros
@@ -766,7 +716,7 @@ let fold_tedges f r =
     f name [[edge]] k
 
   let add_strong_fence_aliases f k =
-    fold_sd false
+    fold_sd
       (fun sd k ->
         expand_dir_macro None
           (fun d1 k ->
@@ -845,7 +795,7 @@ let fold_tedges f r =
     |> add_ws "Wse" Ext
     (* Old syntax for concrete default dependency aliases, for example
        DpsR, DpdR, CtrlsW, and CtrldW. *)
-    |> fold_sd false
+    |> fold_sd
       (fun sd k ->
         k
         |> add_default_dp_alias "Dp" F.ddr_default sd R f
@@ -1216,6 +1166,6 @@ let fold_tedges f r =
             es ;
           eprintf "\n%!"
       | Fences ->
-          F.fold_all_fences (fun f () -> eprintf " %s" (pp_fence f)) () ;
+          F.fold_all_fences (fun f () -> eprintf " %s" (F.pp_fence f)) () ;
           eprintf "\n%!"
 end
