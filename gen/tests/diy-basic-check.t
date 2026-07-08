@@ -7,7 +7,7 @@ A test for no metadata, `-metadata false`
    [x]=1;
    [PTE(x)]=(oa:PA(x), af:0, valid:0);
    [y]=5;
-   0:X0=PTE(x); 0:X1=(oa:PA(y), af:0, valid:0); 0:X2=(oa:PA(y)); 0:X3=x;
+   0:X0=PTE(x); 0:X1=(oa:PA(y), valid:0); 0:X2=(oa:PA(y), af:0); 0:X3=x;
   }
    P0               ;
    STR X1,[X0]      ;
