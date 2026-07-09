@@ -93,8 +93,7 @@ struct
     | _,_ ->
         match get_ie e1, get_ie e2 with
         | Int,Int -> false
-        | Ext,_|_,Ext -> true
-        | UnspecCom,_ | _,UnspecCom -> assert false in
+        | Ext,_|_,Ext -> true in
       if dbg then
         eprintf "Choice: %s %s -> %b\n%!" (C.E.pp_edge e1) (C.E.pp_edge e2) r ;
       r
@@ -120,8 +119,7 @@ struct
           (* Reject other internal followed by internal sequences *)
           match get_ie e1, get_ie e2 with
           | Int,Int -> false
-          | Ext,_|_,Ext -> true
-          | UnspecCom,_ | _,UnspecCom -> assert false in
+          | Ext,_|_,Ext -> true in
       if dbg then
         eprintf "Choice: %s %s -> %b\n%!" (C.E.pp_edge e1) (C.E.pp_edge e2) r ;
       r
@@ -159,8 +157,7 @@ struct
                 | _ -> assert false
                 end
             | Ext,Ext -> false
-            | (Ext,Int) | (Int,Ext) -> true
-            | UnspecCom,_ | _,UnspecCom -> assert false in
+            | (Ext,Int) | (Int,Ext) -> true in
 (*      eprintf "Choice: %s %s -> %b\n" (C.E.pp_edge e1) (C.E.pp_edge e2) r ; *)
       r
     let choice_uni e1 e2 =  match e1.edge,e2.edge with
@@ -289,7 +286,6 @@ module Make(C:Builder.S)
     let is_int e = match get_ie e with
     | Int -> true
     | Ext -> false
-    | UnspecCom -> assert false
 
     let can_precede safes po_safe (_,xs) k = match k with
     | [] -> true
@@ -324,7 +320,6 @@ module Make(C:Builder.S)
         | (Back _|Leave _),_
         | _,Int -> c
         | _,Ext -> c + 1
-        | _,UnspecCom -> assert false
       ) c
 
     let c_minprocs_suff c =
@@ -342,7 +337,6 @@ module Make(C:Builder.S)
           match get_ie e with
           | Ext -> true,c
           | Int -> c_minint_es (c+1) es
-          | UnspecCom -> assert false
 
     let rec c_minint c = function
       | [] -> c
