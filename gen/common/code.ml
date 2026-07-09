@@ -183,9 +183,3 @@ let pp_bank = function
 let add_tag s t = Misc.pp_tagged s t
 
 let add_capability s t = Printf.sprintf "0xffffc0000:%s:%i" s (if t = 0 then 1 else 0)
-
-let add_vector hexa v =
-  let open Printf in
-  let pp value = sprintf (if hexa then "0x%x" else "%d") value in
-  sprintf "{%s}"
-    (String.concat "," (List.map pp v))

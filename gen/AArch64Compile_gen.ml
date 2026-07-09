@@ -1746,6 +1746,15 @@ module Make(Cfg:Config) : XXXCompile_gen.S =
         do_rec cs
       | None -> cs
 
+    (* SIMD store emitters still use the old first-lane convention.
+       Current generated SIMD values are fully determined by their first
+       lane value: register k is reconstructed as first_lane+k. This is
+       not a general encoding for arbitrary vector contents. *)
+    let simd_store_value e =
+      match Value.to_first_vec_band e.C.v with
+      | v::_ -> v
+      | [] -> Warn.fatal "Empty int vector"
+
     let emit_access st p init e =
     let open WPTE in
     match e.C.dir,e.C.loc with
@@ -1976,7 +1985,7 @@ module Make(Cfg:Config) : XXXCompile_gen.S =
              | SIMD.SmV | SIMD.SmH -> ST1T.emit_store n
              | _ -> STN.emit_store n
            in
-           let init,cs,st = emit_store st p init loc (Value.to_int e.C.v) in
+           let init,cs,st = emit_store st p init loc (simd_store_value e) in
            None,init,cs,st
         | W,Some (Neon _,Some _) -> assert false
         end in
@@ -2496,7 +2505,7 @@ module Make(Cfg:Config) : XXXCompile_gen.S =
                | SIMD.SmV | SIMD.SmH -> ST1T.emit_store_idx n
                | _ -> STN.emit_store_idx n
              in
-             let init,cs,st = emit_store_idx vdep st p init loc r2 (Value.to_int e.C.v) in
+             let init,cs,st = emit_store_idx vdep st p init loc r2 (simd_store_value e) in
               None,init,pseudo cs0@cs,st
           | W,Some (Neon _,Some _) -> assert false
           | _,Some (Plain _,None) -> assert false

@@ -34,8 +34,6 @@ module type S = sig
         (* morello *)
         ctag : int; cseal : int; dep : int ;
         v   : Value.v ; (* Value read or written *)
-        (* TODO fold into value *)
-        vecreg: Value.v list list ; (* Alternative for SIMD *)
         dir : dir option ;
         proc : Code.proc ;
         atom : atom option ;
@@ -153,9 +151,6 @@ module Make (O:Config) (E:Edge.S) :
   let do_memtag = O.variant Variant_gen.MemTag
   let do_morello = O.variant Variant_gen.Morello
   let do_kvm = Variant_gen.is_kvm O.variant
-  let do_neon = O.variant Variant_gen.Neon
-  let do_sve = O.variant Variant_gen.SVE
-  let do_sme = O.variant Variant_gen.SME
   let do_no_fault = O.variant Variant_gen.NoFault
 
   type fence = E.fence
@@ -169,7 +164,6 @@ module Make (O:Config) (E:Edge.S) :
       { loc : loc ; ord : int; tag : int;
         ctag : int; cseal : int; dep : int;
         v   : Value.v ;
-        vecreg: Value.v list list ;
         dir : dir option ;
         proc : Code.proc ;
         atom : atom option ;
@@ -192,7 +186,6 @@ module Make (O:Config) (E:Edge.S) :
   let evt_null =
     { loc=Code.loc_none ; ord=0; tag=0;
       ctag=0; cseal=0; dep=0;
-      vecreg= [];
       v=Value.no_value; dir=None; proc=(-1); atom=None; rmw=false;
       cell=[||]; tcell=[||];
       bank=Code.Ord; idx=(-1);
@@ -236,29 +229,20 @@ module Make (O:Config) (E:Edge.S) :
       sprintf " (ord=%i) (ctag=%i) (cseal=%i) (dep=%i)" e.ord e.ctag e.cseal e.dep
     else fun _ -> ""
 
-  let debug_vector =
-    if do_neon || do_sve || do_sme then
-      let pp_one value = Code.add_vector O.hexa
-        (List.map Value.to_int value) in
-      fun e ->
-      sprintf " (vecreg={%s})"
-        (String.concat "," (List.map pp_one e.vecreg))
-    else fun _ -> ""
-
   let debug_val = Value.pp_v ~hexa:O.hexa
 
   let debug_vec v =
     String.concat ", " @@ List.map debug_val @@ Array.to_list v
 
   let debug_evt e =
-    sprintf "#[%d] %s%s %s %s %s%s%s%s%s fault_check:%s value_check:%s"
+    sprintf "#[%d] %s%s %s %s %s%s%s%s fault_check:%s value_check:%s"
       e.idx
       (debug_dir e.dir)
       (debug_atom e.atom)
       (Code.pp_loc e.loc)
       ( if e.rmw then "rmw" else "" )
       ( match debug_vec e.cell with | "" -> "" | s -> "cell=[" ^ s ^"] ")
-      (debug_val e.v) (debug_tag e) (debug_morello e) (debug_vector e)
+      (debug_val e.v) (debug_tag e) (debug_morello e)
       ( match e.check_fault with | Some (_,b) -> sprintf "%b" b | None -> "none" )
       ( match e.check_value with | Some b -> sprintf "%b" b | None -> "none" )
 
@@ -955,14 +939,13 @@ let check_cycle c =
           let ctag = Value.to_int (CoSt.get_co st CapaTag) in
           let cseal = Value.to_int (CoSt.get_co st CapaSeal) in
           n.evt <- { n.evt with ord; ctag; cseal; }
-        end
  (*
-          else if do_neon then (* set both fields, it cannot harm *)
-            let ord = get_co st Ord in
-            let v = get_co st VecReg in
-            let vecreg = [|v;v;v;v;|] in
-            n.evt <- { n.evt with ord=ord; vecreg=vecreg; }
+        else if do_neon then (* set both fields, it cannot harm *)
+          let ord = get_co st Ord in
+          let v = get_co st VecReg in
+          n.evt <- { n.evt with ord; v = Value.from_vec [[v;v;v;v;]]; }
  *)
+        end
       end ;
       (* END of `if Code.is_data n.evt.loc` *)
       match n.evt.dir with
@@ -1020,14 +1003,9 @@ let check_cycle c =
               let st = CoSt.step_simd st a in
               let cell = CoSt.get_cell st
                            |> Array.map Value.to_int in
-              let vecreg  = E.SIMD.read a cell
-                       |> List.map (List.map Value.from_int) in
+              let vecreg  = E.SIMD.read a cell in
               let cell = Array.map Value.from_int cell in
-              let v =
-                match vecreg with
-                  | (v::_)::_ -> v
-                  | _ -> assert false in
-              n.evt <- { n.evt with vecreg; cell; v; check_value; } ;
+              n.evt <- { n.evt with cell; v = Value.from_vec vecreg; check_value; } ;
               (next_x_ok, st)
             | Pte ->
             (* TODO Rework here, esp the function `next_loc` and ref value `next_x_pred`.
@@ -1099,7 +1077,7 @@ let check_cycle c =
                      |> E.SIMD.reduce
                      |> Value.from_int in
             let check_fault, st = CoSt.fault_update st R in
-            n.evt <- { n.evt with v=v ; vecreg=[]; bank=Ord; check_value; check_fault ; };
+            n.evt <- { n.evt with v; bank=Ord; check_value; check_fault ; };
             st
           | Tag ->
             n.evt <- { n.evt with v = CoSt.get_co st bank; check_value; };

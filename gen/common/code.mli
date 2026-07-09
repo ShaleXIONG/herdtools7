@@ -95,6 +95,3 @@ val add_tag : string -> int -> string
 
 (* TODO consider change the type `v` *)
 val add_capability : string -> int -> string
-
-(* TODO consider change the type `v` *)
-val add_vector : bool -> int list -> string
