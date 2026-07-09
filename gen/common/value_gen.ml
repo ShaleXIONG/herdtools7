@@ -38,12 +38,16 @@ end
 
 module type S = sig
   include PteType
-  type v = NoValue | Plain of int | PteValue of pte
+  type v = NoValue | Plain of int | PteValue of pte | VecValue of int list list
   type env = (string * v) list
   val pp_v : ?hexa:bool -> v -> string
+  val pp_vector : ?hexa:bool -> int list -> string
   val no_value : v
   val to_int : v -> int
   val from_int : int -> v
+  val to_vec : v -> int list list
+  val from_vec : int list list -> v
+  val to_first_vec_band : v -> int list
   val to_pte : v -> pte
   val from_pte : pte -> v
   val value_compare : v -> v -> int
@@ -54,15 +58,26 @@ end
 module Make(P:PteType) = struct
 
   include P
-  type v = NoValue | Plain of int | PteValue of pte
+  type v = NoValue | Plain of int | PteValue of pte | VecValue of int list list
   type env = (string * v) list
 
   let no_value = NoValue
+
   let to_int = function
     | NoValue -> -1
     | Plain v -> v
     | _ -> Warn.user_error "Cannot convert to int"
   let from_int v = Plain v
+  let to_vec = function
+    | VecValue v -> v
+    | _ -> Warn.user_error "Cannot convert to int vector"
+  let from_vec = function
+    | [] | []::_ -> Warn.fatal "Empty int vector"
+    | v -> VecValue v
+  let to_first_vec_band v =
+    match to_vec v with
+    | [] | []::_ -> Warn.fatal "Empty int vector"
+    | band::_ -> band
 
   (* NOTE to ensure this module satisfy the Value.S requirement,
      implement the following separately.
@@ -78,12 +93,24 @@ module Make(P:PteType) = struct
     | Plain _, NoValue -> 1
     | Plain _, _ -> -1
     | PteValue lhs, PteValue rhs -> pte_compare lhs rhs
+    | PteValue _, VecValue _ -> -1
     | PteValue _, _ -> 1
+    | VecValue lhs, VecValue rhs ->
+        List.compare (List.compare Misc.int_compare) lhs rhs
+    | VecValue _, _ -> 1
+
+  let pp_int hexa v = Printf.sprintf (if hexa then "0x%x" else "%d") v
+
+  let pp_vector ?(hexa=false) vec =
+    Printf.sprintf "{%s}" (String.concat "," (List.map (pp_int hexa) vec))
 
   let pp_v ?(hexa=false) = function
     | NoValue -> "**"
-    | Plain v -> Printf.sprintf (if hexa then "0x%x" else "%d") v
+    | Plain v -> pp_int hexa v
     | PteValue p -> pp_pte p
+    | VecValue vs ->
+        Printf.sprintf "{%s}"
+          (String.concat "," (List.map (pp_vector ~hexa) vs))
 end
 
 module NoPte(A:sig type arch_atom end) = struct

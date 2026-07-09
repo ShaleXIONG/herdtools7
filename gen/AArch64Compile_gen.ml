@@ -1779,6 +1779,15 @@ module Make(Cfg:Config) : XXXCompile_gen.S =
       in
       do_rec cs
 
+    (* SIMD store emitters still use the old first-lane convention.
+       Current generated SIMD values are fully determined by their first
+       lane value: register k is reconstructed as first_lane+k. This is
+       not a general encoding for arbitrary vector contents. *)
+    let simd_store_value e =
+      match Value.to_first_vec_band e.C.v with
+      | v::_ -> v
+      | [] -> Warn.fatal "Empty int vector"
+
     let emit_access st p init e =
     let structured_atom = e.C.atom in
     let open WPTE in
@@ -1992,7 +2001,7 @@ module Make(Cfg:Config) : XXXCompile_gen.S =
              | SIMD.SmV | SIMD.SmH -> ST1T.emit_store n
              | _ -> STN.emit_store n
            in
-           let init,cs,st = emit_store st p init loc (Value.to_int e.C.v) in
+           let init,cs,st = emit_store st p init loc (simd_store_value e) in
            Some (None,init,cs,st)
         | _,_ -> None in
         (* Compile the node.
@@ -2544,7 +2553,7 @@ module Make(Cfg:Config) : XXXCompile_gen.S =
                | SIMD.SmV | SIMD.SmH -> ST1T.emit_store_idx n
                | _ -> STN.emit_store_idx n
              in
-             let init,cs,st = emit_store_idx vdep st p init loc r2 (Value.to_int e.C.v) in
+             let init,cs,st = emit_store_idx vdep st p init loc r2 (simd_store_value e) in
               Some (None,init,pseudo cs0@cs,st)
           | _,_ -> None in
           let regs,inits,cs,st = match ordinary_access with
@@ -2684,7 +2693,9 @@ module Make(Cfg:Config) : XXXCompile_gen.S =
                       let r3,st = tempo1 st in
                       let cs,st = calc0_gen csel st vdep r3 r1 in
                       sxtw r2 r3::cs,st in
-                let addi = [addi r2 r2 (Value.to_int e.C.v)] in
+                let addi = match structured_atom with
+                  | NeonAccess _ -> []
+                  | _ -> [addi r2 r2 (Value.to_int e.C.v)] in
                 let cs2 = pseudo cs2 in
                 r2,cs2,init,st,addi in
           let r2,cs2,init,st = r2,cs2@pseudo addi,init,st in
@@ -2783,7 +2794,7 @@ module Make(Cfg:Config) : XXXCompile_gen.S =
                | SIMD.SmV | SIMD.SmH -> ST1T.emit_store_dep n
                | _ -> STN.emit_store_dep n
              in
-             let init,cs,st = emit_store_dep r2 st init rA (Value.to_int e.C.v) in
+             let init,cs,st = emit_store_dep r2 st init rA (simd_store_value e) in
              Some (None,init,cs2@cs,st)
           | PairAccess opt ->
               let init,cs,st =

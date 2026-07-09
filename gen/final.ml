@@ -150,7 +150,7 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
     let cons_int loc i fs = (loc,VSet.singleton (I (C.C.Value.from_int i)))::fs
 
     let cons_vec loc t fs =
-      let vec = Code.add_vector O.hexa (Array.to_list t) in
+      let vec = C.C.Value.pp_vector ~hexa:O.hexa (Array.to_list t) in
       (loc,VSet.singleton (S vec))::fs
 
     let cons_pteval loc p fs = (loc,VSet.singleton (I(C.C.Value.from_pte p)))::fs
@@ -184,13 +184,8 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
               ->
                 Some (I evt.C.C.v)
             | Code.VecReg _->
-               let v0 =
-                 match evt.C.C.vecreg with
-                 | [] -> assert false
-                 | v0::_ -> v0 in
-                let vec = v0
-                 |> List.map C.C.Value.to_int
-                 |> Code.add_vector O.hexa in
+                let v0 = C.C.Value.to_first_vec_band evt.C.C.v in
+                let vec = C.C.Value.pp_vector ~hexa:O.hexa v0 in
                 Some (S vec)
             | Code.Tag ->
                 Some (S (Code.add_tag (Code.as_data evt.C.C.loc) (C.C.Value.to_int evt.C.C.v)))
@@ -209,12 +204,10 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
            let vs =
              match bank with
              | Code.VecReg _ ->
-                begin match evt.C.C.vecreg with
+                begin match C.C.Value.to_vec evt.C.C.v with
                 | _::vs ->
-                   List.map (fun v -> S
-                   ( v |> List.map C.C.Value.to_int
-                     |> Code.add_vector O.hexa ) ) vs
-                | _ -> assert false
+                   List.map (fun v -> S (C.C.Value.pp_vector ~hexa:O.hexa v) ) vs
+                | [] -> Warn.fatal "Empty int vector"
                 end
              | _ -> [] in
            let m = C.C.EventMap.add n.C.C.evt (C.A.of_reg p r) m in

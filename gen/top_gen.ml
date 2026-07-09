@@ -582,7 +582,7 @@ let max_set = IntSet.max_elt
        end
 
   let do_observe_local_simd st p i code f x bank nxt =
-    let vs = nxt.C.vecreg in
+    let vs = C.Value.to_vec nxt.C.v in
     let r,i,c,st = Comp.emit_obs bank st p i x in
     let i,c,st =
       match O.obs_type with
@@ -594,7 +594,7 @@ let max_set = IntSet.max_elt
     let rs = r::A.get_friends st r in
     let f =
       List.fold_right2
-        (fun r v -> F.add_final_loc p r (v |> List.map C.Value.to_int |> Code.add_vector O.hexa))
+        (fun r v -> F.add_final_loc p r (C.Value.pp_vector ~hexa:O.hexa v))
         rs vs f in
     i,code@c,f,st
 
