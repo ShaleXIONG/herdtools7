@@ -183,8 +183,7 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
               | Some W -> true
               | None|Some R -> do_rec n.C.C.prev
               end
-          | Diff -> false
-          | UnspecLoc -> assert false in
+          | Diff -> false in
       do_rec m.C.C.prev
 
     let write_after m =
@@ -199,7 +198,6 @@ module Make : functor (O:Config) -> functor (C:ArchRun.S) ->
             begin match C.E.loc_sd e with
             | Same -> do_rec nxt
             | Diff -> false
-            | UnspecLoc -> assert false
             end
         end in
       do_rec m.C.C.next
