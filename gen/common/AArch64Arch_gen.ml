@@ -705,6 +705,10 @@ module StructuredAtom = struct
     | Some (PairAccess _) -> Some 2
     | Some _|None -> None
 
+  let worth_final = function
+    | AtomicAccess _ -> true
+    | _ -> false
+
   let applies a d =
     let open WPTE in
     match a,d with
@@ -1145,13 +1149,8 @@ let is_tthm fields =
        (fun atom r -> f (StructuredAtom.to_legacy atom) r)
        r
 
-   let worth_final (a,_) = match a with
-     | Atomic _ -> true
-     | Acq _|AcqPc _|Rel _|Plain _|Tag|Instr
-     | CapaTag|CapaSeal
-     | Pte _|Neon _
-     | Pair _
-       -> false
+   let worth_final atom =
+     StructuredAtom.worth_final (StructuredAtom.of_legacy atom)
 
 
 
