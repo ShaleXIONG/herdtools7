@@ -709,6 +709,19 @@ module StructuredAtom = struct
     | AtomicAccess _ -> true
     | _ -> false
 
+  let get_machine_feature = function
+    | Some (PlainAccess (PteAccess (Set pte))
+      |AcquireAccess (PteAccess (Set pte))
+      |AcquirePcAccess (PteAccess (Set pte))
+      |ReleaseAccess (PteAccess (Set pte))) ->
+        let open WPTE in
+        WPTESet.fold
+          (fun field features -> match field with
+            | HA|HD -> StringSet.add (WPTE.pp field) features
+            | _ -> features)
+          pte StringSet.empty
+    | Some _|None -> StringSet.empty
+
   let applies a d =
     let open WPTE in
     match a,d with
@@ -1210,18 +1223,10 @@ let overwrite_value v ao w = match get_access_atom ao with
      StructuredAtom.is_pair atom
 
   let get_machine_feature atom =
-    let open WPTE in
-    match atom with
-    | Some(Pte(Set pte|SetRel pte), _) ->
-      WPTESet.fold (fun f acc ->
-        match f with
-        | HA -> StringSet.add (WPTE.pp HA) acc
-        | HD -> StringSet.add (WPTE.pp HD) acc
-        | _ -> acc
-      ) pte StringSet.empty
-    | Some(Pte(ReadHAAcq|ReadHAAcqPc), _) ->
-      StringSet.singleton (WPTE.pp HA)
-    | _ -> StringSet.empty
+    let atom = match atom with
+    | None -> None
+    | Some atom -> Some (StructuredAtom.of_legacy atom) in
+    StructuredAtom.get_machine_feature atom
 
 (* End of atoms *)
 
