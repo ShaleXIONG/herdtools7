@@ -388,6 +388,180 @@ module StructuredAtom = struct
       |Rel (Some Capability)|Tag|CapaTag|CapaSeal|Pte _|Neon _|Pair _|Instr),Some _ ->
         assert false
 
+  let compare_atom_rw rw1 rw2 =
+    let rank = function
+      | PP -> 0
+      | PL -> 1
+      | AP -> 2
+      | AL -> 3 in
+    Int.compare (rank rw1) (rank rw2)
+
+  let compare_mach_size sz1 sz2 =
+    let open MachSize in
+    let rank = function
+      | Byte -> 0
+      | Short -> 1
+      | Word -> 2
+      | Quad -> 3
+      | S128 -> 4 in
+    Int.compare (rank sz1) (rank sz2)
+
+  let compare_mixed (sz1,o1) (sz2,o2) =
+    match compare_mach_size sz1 sz2 with
+    | 0 -> Int.compare o1 o2
+    | c -> c
+
+  let compare_atom_pte p1 p2 =
+    let rank = function
+      | Read -> 0
+      | ReadAcq -> 1
+      | ReadAcqPc -> 2
+      | Set _ -> 3
+      | SetRel _ -> 4
+      | ReadHAAcq -> 5
+      | ReadHAAcqPc -> 6 in
+    match Int.compare (rank p1) (rank p2) with
+    | 0 -> begin
+        match p1,p2 with
+        | Set s1,Set s2
+        | SetRel s1,SetRel s2 -> WPTESet.compare s1 s2
+        | (Read,Read)
+        | (ReadAcq,ReadAcq)
+        | (ReadAcqPc,ReadAcqPc)
+        | (ReadHAAcq,ReadHAAcq)
+        | (ReadHAAcqPc,ReadHAAcqPc) -> 0
+        | _,_ -> assert false
+      end
+    | c -> c
+
+  let compare_neon n1 n2 =
+    let open SIMD in
+    let rank = function
+      | SmV -> 0
+      | SmH -> 1
+      | SvV -> 2
+      | Sv1 -> 3
+      | Sv2i -> 4
+      | Sv3i -> 5
+      | Sv4i -> 6
+      | NeP -> 7
+      | NeAcqPc -> 8
+      | NeRel -> 9
+      | Ne1 -> 10
+      | Ne2 -> 11
+      | Ne3 -> 12
+      | Ne4 -> 13
+      | Ne2i -> 14
+      | Ne3i -> 15
+      | Ne4i -> 16
+      | NePa -> 17
+      | NePaN -> 18 in
+    Int.compare (rank n1) (rank n2)
+
+  let compare_pair_opt p1 p2 =
+    let rank = function
+      | `Pa -> 0
+      | `PaN -> 1
+      | `PaIQ -> 2
+      | `PaIL -> 3
+      | `PaA -> 4
+      | `PaL -> 5 in
+    Int.compare (rank p1) (rank p2)
+
+  let compare_pair_idx idx1 idx2 =
+    match idx1,idx2 with
+    | UnspecLoc,UnspecLoc -> 0
+
+  let compare_access_order o1 o2 =
+    let rank = function
+      | OrderPlain -> 0
+      | OrderAcquire -> 1
+      | OrderAcquirePc -> 2
+      | OrderRelease -> 3
+      | OrderAtomic _ -> 4 in
+    match Int.compare (rank o1) (rank o2) with
+    | 0 -> begin
+        match o1,o2 with
+        | OrderAtomic rw1,OrderAtomic rw2 -> compare_atom_rw rw1 rw2
+        | (OrderPlain,OrderPlain)
+        | (OrderAcquire,OrderAcquire)
+        | (OrderAcquirePc,OrderAcquirePc)
+        | (OrderRelease,OrderRelease) -> 0
+        | _,_ -> assert false
+      end
+    | c -> c
+
+  let compare_ordered_access t1 t2 =
+    let rank = function
+      | OrdinaryAccess -> 0
+      | AccessSize _ -> 1
+      | CapaAccess -> 2
+      | PteAccess _ -> 6
+      | NeonAccess _ -> 7 in
+    match Int.compare (rank t1) (rank t2) with
+    | 0 -> begin
+        match t1,t2 with
+        | AccessSize m1,AccessSize m2 -> compare_mixed m1 m2
+        | PteAccess p1,PteAccess p2 -> compare_atom_pte p1 p2
+        | NeonAccess n1,NeonAccess n2 -> compare_neon n1 n2
+        | (OrdinaryAccess,OrdinaryAccess)
+        | (CapaAccess,CapaAccess) -> 0
+        | _,_ -> assert false
+      end
+    | c -> c
+
+  let ordered_access = function
+    | PlainAccess a|AcquireAccess a|AcquirePcAccess a|ReleaseAccess a -> Some a
+    | AtomicAccess (_,AtomicOrdinary) -> Some OrdinaryAccess
+    | AtomicAccess (_,AtomicAccessSize m) -> Some (AccessSize m)
+    | CapaTagAccess|CapaSealAccess|TagAccess|PairAccess _|InstrAccess -> None
+
+  let access_rank atom =
+    match ordered_access atom,atom with
+    | Some access,_ -> begin match access with
+        | OrdinaryAccess -> 0
+        | AccessSize _ -> 1
+        | CapaAccess -> 2
+        | PteAccess _ -> 6
+        | NeonAccess _ -> 7
+      end
+    | None,CapaTagAccess -> 3
+    | None,CapaSealAccess -> 4
+    | None,TagAccess -> 5
+    | None,PairAccess _ -> 8
+    | None,InstrAccess -> 9
+    | None,(PlainAccess _|AcquireAccess _|AcquirePcAccess _|ReleaseAccess _
+           |AtomicAccess _) -> assert false
+
+  let access_order = function
+    | PlainAccess _|CapaTagAccess|CapaSealAccess|TagAccess|PairAccess _
+    | InstrAccess -> OrderPlain
+    | AcquireAccess _ -> OrderAcquire
+    | AcquirePcAccess _ -> OrderAcquirePc
+    | ReleaseAccess _ -> OrderRelease
+    | AtomicAccess (rw,_) -> OrderAtomic rw
+
+  let compare a1 a2 =
+    match Int.compare (access_rank a1) (access_rank a2) with
+    | 0 -> begin match ordered_access a1,ordered_access a2,a1,a2 with
+        | Some t1,Some t2,_,_ -> begin
+            match compare_ordered_access t1 t2 with
+            | 0 -> compare_access_order (access_order a1) (access_order a2)
+            | c -> c
+          end
+        | None,None,PairAccess (p1,idx1),PairAccess (p2,idx2) -> begin
+            match compare_pair_opt p1 p2 with
+            | 0 -> compare_pair_idx idx1 idx2
+            | c -> c
+          end
+        | None,None,(CapaTagAccess|CapaSealAccess|TagAccess|InstrAccess),
+          (CapaTagAccess|CapaSealAccess|TagAccess|InstrAccess) -> 0
+        | _,_,_,_ -> assert false
+      end
+    | c -> c
+
+  let equal a1 a2 = compare a1 a2 = 0
+
 end
 
 module Value = struct
@@ -675,9 +849,13 @@ let is_tthm fields =
      | None -> pp_acc
      | Some m -> sprintf "%s.%s" pp_acc  (Mixed.pp_mixed m)
 
-   let compare_atom = compare
+   let compare_atom a1 a2 =
+     StructuredAtom.compare
+       (StructuredAtom.of_legacy a1) (StructuredAtom.of_legacy a2)
 
-   let equal_atom a1 a2 = a1 = a2
+   let equal_atom a1 a2 =
+     StructuredAtom.equal
+       (StructuredAtom.of_legacy a1) (StructuredAtom.of_legacy a2)
 
    include
      MachMixed.Util
