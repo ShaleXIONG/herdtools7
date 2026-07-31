@@ -59,7 +59,6 @@ module SIMD = struct
              |NeP|NeAcqPc|NeRel|Ne1|Ne2|Ne3|Ne4|Ne2i|Ne3i|Ne4i|NePa|NePaN
 
   let fold_neon f r = r |>
-    f NeAcqPc |> f NeRel |>
     f NeP |>
     f NePa |> f NePaN |>
     f Ne1 |> f Ne2 |> f Ne3 |> f Ne4 |>
@@ -301,8 +300,10 @@ module StructuredAtom = struct
       OrderAcquirePc -> AcqPc access
     | PteAccess (Set p) as access,OrderAcquirePc
       when p = WPTESet.singleton WPTE.HA -> AcqPc access
+    | NeonAccess SIMD.NeP as access,OrderAcquirePc -> AcqPc access
     | (OrdinaryAccess|AccessSize _|CapaAccess|PteAccess (Set _) as access),
       OrderRelease -> Rel access
+    | NeonAccess SIMD.NeP as access,OrderRelease -> Rel access
     | OrdinaryAccess,OrderAtomic rw -> Atomic (rw,AtomicOrdinary)
     | AccessSize m,OrderAtomic rw -> Atomic (rw,AtomicSize m)
     | _,_ -> Warn.fatal "Invalid annotation construction"
@@ -527,6 +528,8 @@ module StructuredAtom = struct
     | AcqPc (PteAccess (Set p)) ->
         assert (p = WPTESet.singleton WPTE.HA) ; "PteHAQ"
     | Plain (NeonAccess n) -> SIMD.pp n
+    | AcqPc (NeonAccess SIMD.NeP) -> "NeQ"
+    | Rel (NeonAccess SIMD.NeP) -> "NeL"
     | Acq (NeonAccess _)|AcqPc (NeonAccess _)
     | Rel (NeonAccess _)|Rel (PteAccess Read) -> assert false
     | PairAccess (opt,idx) ->
@@ -608,6 +611,8 @@ module StructuredAtom = struct
   let applies a d =
     let open WPTE in
     match a,d with
+    | AcqPc (NeonAccess SIMD.NeP),R
+    | Rel (NeonAccess SIMD.NeP),W -> true
     | Plain (NeonAccess SIMD.NeAcqPc),W
     | Plain (NeonAccess SIMD.NeRel),R -> false
     | (Acq (OrdinaryAccess|AccessSize _|CapaAccess)
@@ -665,6 +670,8 @@ module StructuredAtom = struct
       |Rel (PteAccess (Read|Set _))) -> Code.Pte
     | CapaTagAccess -> Code.CapaTag
     | CapaSealAccess -> Code.CapaSeal
+    | AcqPc (NeonAccess SIMD.NeP) -> Code.VecReg SIMD.NeAcqPc
+    | Rel (NeonAccess SIMD.NeP) -> Code.VecReg SIMD.NeRel
     | Plain (NeonAccess n) -> Code.VecReg n
     | PairAccess (_,UnspecLoc) -> Code.Pair
     | InstrAccess -> Code.Instr
@@ -785,6 +792,7 @@ module StructuredAtom = struct
     | CapaAccess ->
         f (Acq access)
           (f (AcqPc access) (f (Rel access) r))
+    | NeonAccess SIMD.NeP -> f (AcqPc access) (f (Rel access) r)
     | PteAccess _|NeonAccess _ -> r
 
   let fold f r =
