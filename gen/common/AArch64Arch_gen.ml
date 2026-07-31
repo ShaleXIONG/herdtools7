@@ -229,15 +229,6 @@ type neon_opt = SIMD.atom
 
 type pair_idx = UnspecLoc
 
-type atom_acc =
-  | Plain of capa_opt | Acq of capa_opt | AcqPc of capa_opt | Rel of capa_opt
-  | Atomic of atom_rw | Tag | CapaTag | CapaSeal | Pte of atom_pte | Neon of neon_opt
-  | Pair of [ld_pair_opt | st_pair_opt] * pair_idx | Instr
-
-let  plain = Plain None
-
-type atom = atom_acc * MachMixed.t option
-
 type rmw = LrSc | LdOp of atomic_op | StOp of atomic_op | Swp | Cas | AllAmo
   (* `SafeAmo` unfolds to
      `[Swp; Cas; LdOp A_ADD; StOp A_ADD]`, that is,
@@ -293,14 +284,14 @@ module StructuredAtom = struct
     | NeonAccess of neon_opt
   type atomic_access =
     | AtomicOrdinary
-    | AtomicAccessSize of MachMixed.t
+    | AtomicSize of MachMixed.t
 
   type t =
-    | PlainAccess of ordered_access
-    | AcquireAccess of ordered_access
-    | AcquirePcAccess of ordered_access
-    | ReleaseAccess of ordered_access
-    | AtomicAccess of atom_rw * atomic_access
+    | Plain of ordered_access
+    | Acq of ordered_access
+    | AcqPc of ordered_access
+    | Rel of ordered_access
+    | Atomic of atom_rw * atomic_access
     | CapaTagAccess
     | CapaSealAccess
     | TagAccess
@@ -309,104 +300,25 @@ module StructuredAtom = struct
 
   let make access order =
     match access,order with
-    | access,OrderPlain -> PlainAccess access
+    | access,OrderPlain -> Plain access
     | (OrdinaryAccess|AccessSize _|CapaAccess|PteAccess Read as access),
-      OrderAcquire -> AcquireAccess access
+      OrderAcquire -> Acq access
     | PteAccess (Set p) as access,OrderAcquire
-      when p = WPTESet.singleton WPTE.HA -> AcquireAccess access
+      when p = WPTESet.singleton WPTE.HA -> Acq access
     | (OrdinaryAccess|AccessSize _|CapaAccess|PteAccess Read as access),
-      OrderAcquirePc -> AcquirePcAccess access
+      OrderAcquirePc -> AcqPc access
     | PteAccess (Set p) as access,OrderAcquirePc
-      when p = WPTESet.singleton WPTE.HA -> AcquirePcAccess access
+      when p = WPTESet.singleton WPTE.HA -> AcqPc access
     | (OrdinaryAccess|AccessSize _|CapaAccess|PteAccess (Set _) as access),
-      OrderRelease -> ReleaseAccess access
-    | OrdinaryAccess,OrderAtomic rw -> AtomicAccess (rw,AtomicOrdinary)
-    | AccessSize m,OrderAtomic rw -> AtomicAccess (rw,AtomicAccessSize m)
+      OrderRelease -> Rel access
+    | OrdinaryAccess,OrderAtomic rw -> Atomic (rw,AtomicOrdinary)
+    | AccessSize m,OrderAtomic rw -> Atomic (rw,AtomicSize m)
     | _,_ -> Warn.fatal "Invalid annotation construction"
 
   let plain = make OrdinaryAccess OrderPlain
   let default = make OrdinaryAccess (OrderAtomic PP)
   let instr = InstrAccess
 
-  let legacy_plain o : atom_acc = Plain o
-  let legacy_acquire o : atom_acc = Acq o
-  let legacy_acquire_pc o : atom_acc = AcqPc o
-  let legacy_release o : atom_acc = Rel o
-  let legacy_atomic rw : atom_acc = Atomic rw
-
-  let to_legacy a =
-    match a with
-    | PlainAccess OrdinaryAccess -> legacy_plain None,None
-    | PlainAccess (AccessSize m) -> legacy_plain None,Some m
-    | AcquireAccess OrdinaryAccess -> legacy_acquire None,None
-    | AcquireAccess (AccessSize m) -> legacy_acquire None,Some m
-    | AcquirePcAccess OrdinaryAccess -> legacy_acquire_pc None,None
-    | AcquirePcAccess (AccessSize m) -> legacy_acquire_pc None,Some m
-    | ReleaseAccess OrdinaryAccess -> legacy_release None,None
-    | ReleaseAccess (AccessSize m) -> legacy_release None,Some m
-    | AtomicAccess (rw,AtomicOrdinary) -> legacy_atomic rw,None
-    | AtomicAccess (rw,AtomicAccessSize m) -> legacy_atomic rw,Some m
-    | PlainAccess CapaAccess -> legacy_plain (Some Capability),None
-    | AcquireAccess CapaAccess -> legacy_acquire (Some Capability),None
-    | AcquirePcAccess CapaAccess -> legacy_acquire_pc (Some Capability),None
-    | ReleaseAccess CapaAccess -> legacy_release (Some Capability),None
-    | CapaTagAccess -> CapaTag,None
-    | CapaSealAccess -> CapaSeal,None
-    | TagAccess -> Tag,None
-    | PlainAccess (PteAccess Read) -> Pte Read,None
-    | AcquireAccess (PteAccess Read) -> Pte ReadAcq,None
-    | AcquirePcAccess (PteAccess Read) -> Pte ReadAcqPc,None
-    | PlainAccess (PteAccess (Set p)) -> Pte (Set p),None
-    | ReleaseAccess (PteAccess (Set p)) -> Pte (SetRel p),None
-    | AcquireAccess (PteAccess (Set p)) ->
-        assert (p = WPTESet.singleton WPTE.HA) ; Pte ReadHAAcq,None
-    | AcquirePcAccess (PteAccess (Set p)) ->
-        assert (p = WPTESet.singleton WPTE.HA) ; Pte ReadHAAcqPc,None
-    | PlainAccess (PteAccess (ReadAcq|ReadAcqPc|SetRel _|ReadHAAcq|ReadHAAcqPc))
-    | AcquireAccess (PteAccess (ReadAcq|ReadAcqPc|SetRel _|ReadHAAcq|ReadHAAcqPc))
-    | AcquirePcAccess (PteAccess (ReadAcq|ReadAcqPc|SetRel _|ReadHAAcq|ReadHAAcqPc))
-    | ReleaseAccess (PteAccess (Read|ReadAcq|ReadAcqPc|SetRel _|ReadHAAcq|ReadHAAcqPc)) ->
-        assert false
-    | PlainAccess (NeonAccess n) -> Neon n,None
-    | AcquireAccess (NeonAccess _)|AcquirePcAccess (NeonAccess _)
-    | ReleaseAccess (NeonAccess _) ->
-        assert false
-    | PairAccess (opt,idx) -> Pair (opt,idx),None
-    | InstrAccess -> Instr,None
-
-  let of_legacy (legacy : atom) =
-    let ordinary_or_size = function
-      | None -> OrdinaryAccess
-      | Some m -> AccessSize m in
-    match legacy with
-    | Plain None,None -> plain
-    | Plain None,Some m -> make (AccessSize m) OrderPlain
-    | Acq None,m -> make (ordinary_or_size m) OrderAcquire
-    | AcqPc None,m -> make (ordinary_or_size m) OrderAcquirePc
-    | Rel None,m -> make (ordinary_or_size m) OrderRelease
-    | Atomic rw,m -> make (ordinary_or_size m) (OrderAtomic rw)
-    | Plain (Some Capability),None -> make CapaAccess OrderPlain
-    | Acq (Some Capability),None -> make CapaAccess OrderAcquire
-    | AcqPc (Some Capability),None -> make CapaAccess OrderAcquirePc
-    | Rel (Some Capability),None -> make CapaAccess OrderRelease
-    | CapaTag,None -> CapaTagAccess
-    | CapaSeal,None -> CapaSealAccess
-    | Tag,None -> TagAccess
-    | Pte Read,None -> make (PteAccess Read) OrderPlain
-    | Pte ReadAcq,None -> make (PteAccess Read) OrderAcquire
-    | Pte ReadAcqPc,None -> make (PteAccess Read) OrderAcquirePc
-    | Pte (Set p),None -> make (PteAccess (Set p)) OrderPlain
-    | Pte (SetRel p),None -> make (PteAccess (Set p)) OrderRelease
-    | Pte ReadHAAcq,None ->
-        make (PteAccess (Set (WPTESet.singleton WPTE.HA))) OrderAcquire
-    | Pte ReadHAAcqPc,None ->
-        make (PteAccess (Set (WPTESet.singleton WPTE.HA))) OrderAcquirePc
-    | Neon n,None -> make (NeonAccess n) OrderPlain
-    | Pair (opt,idx),None -> PairAccess (opt,idx)
-    | Instr,None -> instr
-    | (Plain (Some Capability)|Acq (Some Capability)|AcqPc (Some Capability)
-      |Rel (Some Capability)|Tag|CapaTag|CapaSeal|Pte _|Neon _|Pair _|Instr),Some _ ->
-        assert false
 
   let compare_atom_rw rw1 rw2 =
     let rank = function
@@ -531,9 +443,9 @@ module StructuredAtom = struct
     | c -> c
 
   let ordered_access = function
-    | PlainAccess a|AcquireAccess a|AcquirePcAccess a|ReleaseAccess a -> Some a
-    | AtomicAccess (_,AtomicOrdinary) -> Some OrdinaryAccess
-    | AtomicAccess (_,AtomicAccessSize m) -> Some (AccessSize m)
+    | Plain a|Acq a|AcqPc a|Rel a -> Some a
+    | Atomic (_,AtomicOrdinary) -> Some OrdinaryAccess
+    | Atomic (_,AtomicSize m) -> Some (AccessSize m)
     | CapaTagAccess|CapaSealAccess|TagAccess|PairAccess _|InstrAccess -> None
 
   let access_rank atom =
@@ -550,16 +462,16 @@ module StructuredAtom = struct
     | None,TagAccess -> 5
     | None,PairAccess _ -> 8
     | None,InstrAccess -> 9
-    | None,(PlainAccess _|AcquireAccess _|AcquirePcAccess _|ReleaseAccess _
-           |AtomicAccess _) -> assert false
+    | None,(Plain _|Acq _|AcqPc _|Rel _
+           |Atomic _) -> assert false
 
   let access_order = function
-    | PlainAccess _|CapaTagAccess|CapaSealAccess|TagAccess|PairAccess _
+    | Plain _|CapaTagAccess|CapaSealAccess|TagAccess|PairAccess _
     | InstrAccess -> OrderPlain
-    | AcquireAccess _ -> OrderAcquire
-    | AcquirePcAccess _ -> OrderAcquirePc
-    | ReleaseAccess _ -> OrderRelease
-    | AtomicAccess (rw,_) -> OrderAtomic rw
+    | Acq _ -> OrderAcquire
+    | AcqPc _ -> OrderAcquirePc
+    | Rel _ -> OrderRelease
+    | Atomic (rw,_) -> OrderAtomic rw
 
   let compare a1 a2 =
     match Int.compare (access_rank a1) (access_rank a2) with
@@ -609,42 +521,42 @@ module StructuredAtom = struct
     | UnspecLoc -> ""
 
   let pp = function
-    | PlainAccess OrdinaryAccess -> "P"
-    | AcquireAccess OrdinaryAccess -> "A"
-    | AcquirePcAccess OrdinaryAccess -> "Q"
-    | ReleaseAccess OrdinaryAccess -> "L"
-    | AtomicAccess (rw,AtomicOrdinary) -> sprintf "X%s" (pp_atom_rw rw)
-    | PlainAccess (AccessSize m) -> pp_mixed m
-    | AcquireAccess (AccessSize m) -> sprintf "A.%s" (pp_mixed m)
-    | AcquirePcAccess (AccessSize m) -> sprintf "Q.%s" (pp_mixed m)
-    | ReleaseAccess (AccessSize m) -> sprintf "L.%s" (pp_mixed m)
-    | AtomicAccess (rw,AtomicAccessSize m) ->
+    | Plain OrdinaryAccess -> "P"
+    | Acq OrdinaryAccess -> "A"
+    | AcqPc OrdinaryAccess -> "Q"
+    | Rel OrdinaryAccess -> "L"
+    | Atomic (rw,AtomicOrdinary) -> sprintf "X%s" (pp_atom_rw rw)
+    | Plain (AccessSize m) -> pp_mixed m
+    | Acq (AccessSize m) -> sprintf "A.%s" (pp_mixed m)
+    | AcqPc (AccessSize m) -> sprintf "Q.%s" (pp_mixed m)
+    | Rel (AccessSize m) -> sprintf "L.%s" (pp_mixed m)
+    | Atomic (rw,AtomicSize m) ->
         sprintf "X%s.%s" (pp_atom_rw rw) (pp_mixed m)
-    | PlainAccess CapaAccess -> "Pc"
-    | AcquireAccess CapaAccess -> "Ac"
-    | AcquirePcAccess CapaAccess -> "Qc"
-    | ReleaseAccess CapaAccess -> "Lc"
+    | Plain CapaAccess -> "Pc"
+    | Acq CapaAccess -> "Ac"
+    | AcqPc CapaAccess -> "Qc"
+    | Rel CapaAccess -> "Lc"
     | CapaTagAccess -> "Ct"
     | CapaSealAccess -> "Cs"
     | TagAccess -> "T"
-    | PlainAccess (PteAccess Read) -> "Pte"
-    | AcquireAccess (PteAccess Read) -> "PteA"
-    | AcquirePcAccess (PteAccess Read) -> "PteQ"
-    | PlainAccess (PteAccess (Set p)) ->
+    | Plain (PteAccess Read) -> "Pte"
+    | Acq (PteAccess Read) -> "PteA"
+    | AcqPc (PteAccess Read) -> "PteQ"
+    | Plain (PteAccess (Set p)) ->
         sprintf "Pte%s" (pp_w_pte p)
-    | ReleaseAccess (PteAccess (Set p)) ->
+    | Rel (PteAccess (Set p)) ->
         sprintf "Pte%sL" (pp_w_pte p)
-    | AcquireAccess (PteAccess (Set p)) ->
+    | Acq (PteAccess (Set p)) ->
         assert (p = WPTESet.singleton WPTE.HA) ; "PteHAA"
-    | AcquirePcAccess (PteAccess (Set p)) ->
+    | AcqPc (PteAccess (Set p)) ->
         assert (p = WPTESet.singleton WPTE.HA) ; "PteHAQ"
-    | PlainAccess (NeonAccess n) -> SIMD.pp n
-    | AcquireAccess (NeonAccess _)|AcquirePcAccess (NeonAccess _)
-    | ReleaseAccess (NeonAccess _) -> assert false
-    | PlainAccess (PteAccess (ReadAcq|ReadAcqPc|SetRel _|ReadHAAcq|ReadHAAcqPc))
-    | AcquireAccess (PteAccess (ReadAcq|ReadAcqPc|SetRel _|ReadHAAcq|ReadHAAcqPc))
-    | AcquirePcAccess (PteAccess (ReadAcq|ReadAcqPc|SetRel _|ReadHAAcq|ReadHAAcqPc))
-    | ReleaseAccess (PteAccess (Read|ReadAcq|ReadAcqPc|SetRel _|ReadHAAcq|ReadHAAcqPc)) ->
+    | Plain (NeonAccess n) -> SIMD.pp n
+    | Acq (NeonAccess _)|AcqPc (NeonAccess _)
+    | Rel (NeonAccess _) -> assert false
+    | Plain (PteAccess (ReadAcq|ReadAcqPc|SetRel _|ReadHAAcq|ReadHAAcqPc))
+    | Acq (PteAccess (ReadAcq|ReadAcqPc|SetRel _|ReadHAAcq|ReadHAAcqPc))
+    | AcqPc (PteAccess (ReadAcq|ReadAcqPc|SetRel _|ReadHAAcq|ReadHAAcqPc))
+    | Rel (PteAccess (Read|ReadAcq|ReadAcqPc|SetRel _|ReadHAAcq|ReadHAAcqPc)) ->
         assert false
     | PairAccess (opt,idx) ->
         sprintf "Pa%s%s" (pp_pair_opt opt) (pp_pair_idx idx)
@@ -652,24 +564,24 @@ module StructuredAtom = struct
 
   let get_access_atom = function
     | None -> None
-    | Some (PlainAccess (AccessSize m)|AcquireAccess (AccessSize m)
-      |AcquirePcAccess (AccessSize m)|ReleaseAccess (AccessSize m)
-      |AtomicAccess (_,AtomicAccessSize m)) -> Some m
+    | Some (Plain (AccessSize m)|Acq (AccessSize m)
+      |AcqPc (AccessSize m)|Rel (AccessSize m)
+      |Atomic (_,AtomicSize m)) -> Some m
     | Some _ -> None
 
   let set_access_atom atom m =
     match atom with
     | None -> Some (make (AccessSize m) OrderPlain)
-    | Some (PlainAccess (OrdinaryAccess|AccessSize _)) ->
-        Some (PlainAccess (AccessSize m))
-    | Some (AcquireAccess (OrdinaryAccess|AccessSize _)) ->
-        Some (AcquireAccess (AccessSize m))
-    | Some (AcquirePcAccess (OrdinaryAccess|AccessSize _)) ->
-        Some (AcquirePcAccess (AccessSize m))
-    | Some (ReleaseAccess (OrdinaryAccess|AccessSize _)) ->
-        Some (ReleaseAccess (AccessSize m))
-    | Some (AtomicAccess (rw,(AtomicOrdinary|AtomicAccessSize _))) ->
-        Some (AtomicAccess (rw,AtomicAccessSize m))
+    | Some (Plain (OrdinaryAccess|AccessSize _)) ->
+        Some (Plain (AccessSize m))
+    | Some (Acq (OrdinaryAccess|AccessSize _)) ->
+        Some (Acq (AccessSize m))
+    | Some (AcqPc (OrdinaryAccess|AccessSize _)) ->
+        Some (AcqPc (AccessSize m))
+    | Some (Rel (OrdinaryAccess|AccessSize _)) ->
+        Some (Rel (AccessSize m))
+    | Some (Atomic (rw,(AtomicOrdinary|AtomicSize _))) ->
+        Some (Atomic (rw,AtomicSize m))
     | Some atom -> Some atom
 
   let overlap a1 a2 =
@@ -697,7 +609,7 @@ module StructuredAtom = struct
       | Sv3i | Ne3 | Ne3i -> 12
       | Sv4i | Ne4 | Ne4i -> 16 in
     match atom with
-    | Some (PlainAccess (NeonAccess n)) ->
+    | Some (Plain (NeonAccess n)) ->
         begin match neon_as_integers n with
         | 1 -> None
         | n -> Some n
@@ -706,14 +618,14 @@ module StructuredAtom = struct
     | Some _|None -> None
 
   let worth_final = function
-    | AtomicAccess _ -> true
+    | Atomic _ -> true
     | _ -> false
 
   let get_machine_feature = function
-    | Some (PlainAccess (PteAccess (Set pte))
-      |AcquireAccess (PteAccess (Set pte))
-      |AcquirePcAccess (PteAccess (Set pte))
-      |ReleaseAccess (PteAccess (Set pte))) ->
+    | Some (Plain (PteAccess (Set pte))
+      |Acq (PteAccess (Set pte))
+      |AcqPc (PteAccess (Set pte))
+      |Rel (PteAccess (Set pte))) ->
         let open WPTE in
         WPTESet.fold
           (fun field features -> match field with
@@ -725,39 +637,39 @@ module StructuredAtom = struct
   let applies a d =
     let open WPTE in
     match a,d with
-    | PlainAccess (NeonAccess SIMD.NeAcqPc),W
-    | PlainAccess (NeonAccess SIMD.NeRel),R -> false
-    | (AcquireAccess (OrdinaryAccess|AccessSize _|CapaAccess)
-      |AcquirePcAccess (OrdinaryAccess|AccessSize _|CapaAccess)),R -> true
-    | ReleaseAccess (OrdinaryAccess|AccessSize _|CapaAccess),W -> true
-    | (PlainAccess (PteAccess Read)|AcquireAccess (PteAccess Read)
-      |AcquirePcAccess (PteAccess Read)),R -> true
-    | PlainAccess (PteAccess (Set p)),R when WPTESet.mem HA p -> true
-    | (AcquireAccess (PteAccess (Set p))
-      |AcquirePcAccess (PteAccess (Set p))),R
+    | Plain (NeonAccess SIMD.NeAcqPc),W
+    | Plain (NeonAccess SIMD.NeRel),R -> false
+    | (Acq (OrdinaryAccess|AccessSize _|CapaAccess)
+      |AcqPc (OrdinaryAccess|AccessSize _|CapaAccess)),R -> true
+    | Rel (OrdinaryAccess|AccessSize _|CapaAccess),W -> true
+    | (Plain (PteAccess Read)|Acq (PteAccess Read)
+      |AcqPc (PteAccess Read)),R -> true
+    | Plain (PteAccess (Set p)),R when WPTESet.mem HA p -> true
+    | (Acq (PteAccess (Set p))
+      |AcqPc (PteAccess (Set p))),R
       when p = WPTESet.singleton HA -> true
-    | (PlainAccess (PteAccess (Set _))
-      |ReleaseAccess (PteAccess (Set _))),W -> true
+    | (Plain (PteAccess (Set _))
+      |Rel (PteAccess (Set _))),W -> true
     | InstrAccess,R -> true
-    | PlainAccess (OrdinaryAccess|AccessSize _|CapaAccess),(R|W)
-    | AtomicAccess _,(R|W)
+    | Plain (OrdinaryAccess|AccessSize _|CapaAccess),(R|W)
+    | Atomic _,(R|W)
     | (TagAccess|CapaTagAccess|CapaSealAccess),(R|W)
-    | PlainAccess (NeonAccess _),(R|W) -> true
+    | Plain (NeonAccess _),(R|W) -> true
     | PairAccess ((`Pa|`PaN|`PaIQ|`PaA),_),R -> true
     | PairAccess ((`Pa|`PaN|`PaIL|`PaL),_),W -> true
     | _ -> false
 
   let applies_rmw rmw ar aw =
     let ok_rw ar aw = match ar,aw with
-      | (None|Some (PlainAccess (OrdinaryAccess|AccessSize _|CapaAccess))
-        |Some (AcquireAccess (OrdinaryAccess|AccessSize _|CapaAccess))),
-        (None|Some (PlainAccess (OrdinaryAccess|AccessSize _|CapaAccess))
-        |Some (ReleaseAccess (OrdinaryAccess|AccessSize _|CapaAccess))) -> true
+      | (None|Some (Plain (OrdinaryAccess|AccessSize _|CapaAccess))
+        |Some (Acq (OrdinaryAccess|AccessSize _|CapaAccess))),
+        (None|Some (Plain (OrdinaryAccess|AccessSize _|CapaAccess))
+        |Some (Rel (OrdinaryAccess|AccessSize _|CapaAccess))) -> true
       | _,_ -> false in
     let ok_w ar aw = match ar,aw with
-      | (None|Some (PlainAccess (OrdinaryAccess|AccessSize _|CapaAccess))),
-        (None|Some (PlainAccess (OrdinaryAccess|AccessSize _|CapaAccess))
-        |Some (ReleaseAccess (OrdinaryAccess|AccessSize _|CapaAccess))) -> true
+      | (None|Some (Plain (OrdinaryAccess|AccessSize _|CapaAccess))),
+        (None|Some (Plain (OrdinaryAccess|AccessSize _|CapaAccess))
+        |Some (Rel (OrdinaryAccess|AccessSize _|CapaAccess))) -> true
       | _,_ -> false in
     let same_mixed =
       Misc.opt_eq MachMixed.equal
@@ -773,23 +685,23 @@ module StructuredAtom = struct
 
   let to_bank = function
     | TagAccess -> Code.Tag
-    | (PlainAccess (PteAccess (Set p))|AcquireAccess (PteAccess (Set p))
-      |AcquirePcAccess (PteAccess (Set p))|ReleaseAccess (PteAccess (Set p)))
+    | (Plain (PteAccess (Set p))|Acq (PteAccess (Set p))
+      |AcqPc (PteAccess (Set p))|Rel (PteAccess (Set p)))
       when is_tthm p -> Code.Ord
-    | (PlainAccess (PteAccess (Read|Set _))
-      |AcquireAccess (PteAccess (Read|Set _))
-      |AcquirePcAccess (PteAccess (Read|Set _))
-      |ReleaseAccess (PteAccess (Read|Set _))) -> Code.Pte
+    | (Plain (PteAccess (Read|Set _))
+      |Acq (PteAccess (Read|Set _))
+      |AcqPc (PteAccess (Read|Set _))
+      |Rel (PteAccess (Read|Set _))) -> Code.Pte
     | CapaTagAccess -> Code.CapaTag
     | CapaSealAccess -> Code.CapaSeal
-    | PlainAccess (NeonAccess n) -> Code.VecReg n
+    | Plain (NeonAccess n) -> Code.VecReg n
     | PairAccess (_,UnspecLoc) -> Code.Pair
     | InstrAccess -> Code.Instr
-    | (PlainAccess (OrdinaryAccess|AccessSize _|CapaAccess)
-      |AcquireAccess (OrdinaryAccess|AccessSize _|CapaAccess)
-      |AcquirePcAccess (OrdinaryAccess|AccessSize _|CapaAccess)
-      |ReleaseAccess (OrdinaryAccess|AccessSize _|CapaAccess)
-      |AtomicAccess _) -> Code.Ord
+    | (Plain (OrdinaryAccess|AccessSize _|CapaAccess)
+      |Acq (OrdinaryAccess|AccessSize _|CapaAccess)
+      |AcqPc (OrdinaryAccess|AccessSize _|CapaAccess)
+      |Rel (OrdinaryAccess|AccessSize _|CapaAccess)
+      |Atomic _) -> Code.Ord
     | _ -> assert false
 
   let merge a1 a2 =
@@ -810,11 +722,11 @@ module StructuredAtom = struct
         when p = WPTESet.singleton HA -> Some (make access order)
       | _,_ -> None in
     match a1,a2 with
-    | PlainAccess OrdinaryAccess,InstrAccess
-    | InstrAccess,PlainAccess OrdinaryAccess ->
+    | Plain OrdinaryAccess,InstrAccess
+    | InstrAccess,Plain OrdinaryAccess ->
         None
-    | PlainAccess OrdinaryAccess,a
-    | a,PlainAccess OrdinaryAccess ->
+    | Plain OrdinaryAccess,a
+    | a,Plain OrdinaryAccess ->
         Some a
     | a1,a2 -> begin match ordered_access a1,ordered_access a2 with
       | Some (AccessSize m),Some OrdinaryAccess
@@ -885,23 +797,23 @@ module StructuredAtom = struct
     if do_morello then f CapaAccess r else r
 
   let fold_orders f access r =
-    let r = f (PlainAccess access) r in
+    let r = f (Plain access) r in
     match access with
     | OrdinaryAccess|AccessSize _ ->
-        let r = f (AcquireAccess access) r in
-        let r = f (AcquirePcAccess access) r in
-        let r = f (ReleaseAccess access) r in
+        let r = f (Acq access) r in
+        let r = f (AcqPc access) r in
+        let r = f (Rel access) r in
         fold_atom_rw
           (fun rw ->
             let atomic = match access with
             | OrdinaryAccess -> AtomicOrdinary
-            | AccessSize m -> AtomicAccessSize m
+            | AccessSize m -> AtomicSize m
             | CapaAccess|PteAccess _|NeonAccess _ -> assert false in
-            f (AtomicAccess (rw,atomic)))
+            f (Atomic (rw,atomic)))
           r
     | CapaAccess ->
-        f (AcquireAccess access)
-          (f (AcquirePcAccess access) (f (ReleaseAccess access) r))
+        f (Acq access)
+          (f (AcqPc access) (f (Rel access) r))
     | PteAccess _|NeonAccess _ -> r
 
   let fold f r =
@@ -912,6 +824,8 @@ module StructuredAtom = struct
     if do_morello then f CapaTagAccess (f CapaSealAccess r) else r
 
 end
+
+type atom = StructuredAtom.t
 
 module Value = struct
 
@@ -944,8 +858,11 @@ module Value = struct
       let open WPTE in
       let default_pte_loc = default_pte loc in
       let pte_atom_list = List.filter_map
-        ( fun (atom, _mach_size) -> match atom with
-          | Pte(pte_atom) -> Some(pte_atom)
+        ( fun atom -> match atom with
+          | StructuredAtom.Plain (StructuredAtom.PteAccess pte_atom)
+          | StructuredAtom.Acq (StructuredAtom.PteAccess pte_atom)
+          | StructuredAtom.AcqPc (StructuredAtom.PteAccess pte_atom)
+          | StructuredAtom.Rel (StructuredAtom.PteAccess pte_atom) -> Some pte_atom
           | _ -> None
         ) pte_atom_list in
       (* A dummy function that return the default physical address `*` *)
@@ -1044,7 +961,10 @@ module Value = struct
 
     let set_pteval a p =
       match a with
-      | Pte f,None -> do_setpteval f p
+      | StructuredAtom.Plain (StructuredAtom.PteAccess f)
+      | StructuredAtom.Acq (StructuredAtom.PteAccess f)
+      | StructuredAtom.AcqPc (StructuredAtom.PteAccess f)
+      | StructuredAtom.Rel (StructuredAtom.PteAccess f) -> do_setpteval f p
       | _ -> Warn.user_error "Atom is not a pteval write"
 
     let can_fault dir pte_val =
@@ -1067,9 +987,15 @@ module Value = struct
     let need_check_fault atom =
       let open WPTE in
       match atom with
-      | Some (Pte pte, None)
+      | Some (StructuredAtom.Plain (StructuredAtom.PteAccess pte)
+        |StructuredAtom.Acq (StructuredAtom.PteAccess pte)
+        |StructuredAtom.AcqPc (StructuredAtom.PteAccess pte)
+        |StructuredAtom.Rel (StructuredAtom.PteAccess pte))
         when (affect_pte_field AF pte || affect_pte_field VALID pte) -> Irr
-      | Some (Pte pte, None)
+      | Some (StructuredAtom.Plain (StructuredAtom.PteAccess pte)
+        |StructuredAtom.Acq (StructuredAtom.PteAccess pte)
+        |StructuredAtom.AcqPc (StructuredAtom.PteAccess pte)
+        |StructuredAtom.Rel (StructuredAtom.PteAccess pte))
         when affect_pte_field DB pte -> Dir W
       | _ -> NoDir
 
@@ -1100,17 +1026,12 @@ module Mixed =
       let fullmixed = C.fullmixed
     end)(Value)
 
-let default_atom = StructuredAtom.to_legacy StructuredAtom.default
-let instr_atom = Some (StructuredAtom.to_legacy StructuredAtom.instr)
+let default_atom = StructuredAtom.default
+let instr_atom = Some StructuredAtom.instr
 
-let applies_atom atom d =
-  StructuredAtom.applies (StructuredAtom.of_legacy atom) d
+let applies_atom = StructuredAtom.applies
 
-let is_ifetch atom =
-  let atom = match atom with
-  | None -> None
-  | Some atom -> Some (StructuredAtom.of_legacy atom) in
-  StructuredAtom.is_ifetch atom
+let is_ifetch = StructuredAtom.is_ifetch
 
    let pp_plain = StructuredAtom.pp StructuredAtom.plain
    let pair_opt_to_ld : [ld_pair_opt | st_pair_opt] -> ld_pair_opt = function
@@ -1121,61 +1042,31 @@ let is_ifetch atom =
      | `Pa -> `Pa | `PaN -> `PaN | `PaIL -> `PaIL | `PaL -> `PaL
      | `PaIQ | `PaA -> assert false
 
-   let pp_atom_acc atom =
-     StructuredAtom.pp (StructuredAtom.of_legacy (atom,None))
-
    let pp_atom atom =
-     let atom = StructuredAtom.of_legacy atom in
      if StructuredAtom.equal atom StructuredAtom.plain then ""
      else StructuredAtom.pp atom
 
-   let compare_atom a1 a2 =
-     StructuredAtom.compare
-       (StructuredAtom.of_legacy a1) (StructuredAtom.of_legacy a2)
+   let compare_atom = StructuredAtom.compare
 
-   let equal_atom a1 a2 =
-     StructuredAtom.equal
-       (StructuredAtom.of_legacy a1) (StructuredAtom.of_legacy a2)
+   let equal_atom = StructuredAtom.equal
 
-   let get_access_atom = function
-   | None -> None
-   | Some atom ->
-       StructuredAtom.get_access_atom (Some (StructuredAtom.of_legacy atom))
+   let get_access_atom = StructuredAtom.get_access_atom
 
-   let set_access_atom atom m =
-     let atom = match atom with
-     | None -> None
-     | Some atom -> Some (StructuredAtom.of_legacy atom) in
-     match StructuredAtom.set_access_atom atom m with
-     | None -> None
-     | Some atom -> Some (StructuredAtom.to_legacy atom)
+   let set_access_atom = StructuredAtom.set_access_atom
 
-   let fold_atom f r =
-     StructuredAtom.fold
-       (fun atom r -> f (StructuredAtom.to_legacy atom) r)
-       r
+   let fold_atom = StructuredAtom.fold
 
-   let worth_final atom =
-     StructuredAtom.worth_final (StructuredAtom.of_legacy atom)
+   let worth_final = StructuredAtom.worth_final
 
 
 
    let varatom_dir _d f r = f None r
 
-   let merge_atoms a1 a2 =
-     match
-       StructuredAtom.merge
-         (StructuredAtom.of_legacy a1) (StructuredAtom.of_legacy a2)
-     with
-     | Some atom -> Some (StructuredAtom.to_legacy atom)
-     | None -> None
+   let merge_atoms = StructuredAtom.merge
 
-   let overlap_atoms a1 a2 =
-     StructuredAtom.overlap
-       (StructuredAtom.of_legacy a1) (StructuredAtom.of_legacy a2)
+   let overlap_atoms = StructuredAtom.overlap
 
-   let atom_to_bank atom =
-     StructuredAtom.to_bank (StructuredAtom.of_legacy atom)
+   let atom_to_bank = StructuredAtom.to_bank
 
 
 (**************)
@@ -1203,23 +1094,11 @@ let overwrite_value v ao w = match get_access_atom ao with
 
 (* Wide accesses *)
 
-   let as_integers atom =
-     let atom = match atom with
-     | None -> None
-     | Some atom -> Some (StructuredAtom.of_legacy atom) in
-     StructuredAtom.as_integers atom
+   let as_integers = StructuredAtom.as_integers
 
-   let is_pair atom =
-     let atom = match atom with
-     | None -> None
-     | Some atom -> Some (StructuredAtom.of_legacy atom) in
-     StructuredAtom.is_pair atom
+   let is_pair = StructuredAtom.is_pair
 
-  let get_machine_feature atom =
-    let atom = match atom with
-    | None -> None
-    | Some atom -> Some (StructuredAtom.of_legacy atom) in
-    StructuredAtom.get_machine_feature atom
+  let get_machine_feature = StructuredAtom.get_machine_feature
 
 (* End of atoms *)
 
@@ -1453,10 +1332,6 @@ let fold_rmw_compat f r = f LrSc r
 (* Check legal anotation for AMO instructions and LxSx pairs *)
 
 let applies_atom_rmw rmw ar aw =
-  let to_structured = function
-    | None -> None
-    | Some atom -> Some (StructuredAtom.of_legacy atom) in
-  let ar = to_structured ar and aw = to_structured aw in
   StructuredAtom.applies_rmw rmw ar aw
 
 let show_rmw_reg = function
