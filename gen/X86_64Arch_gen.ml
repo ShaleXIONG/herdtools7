@@ -220,24 +220,7 @@ module Make
       (* Deps *)
       (********)
 
-      type dp
-
-      let equal_dp _ _ = assert false
-      let pp_dp _ = assert false
-
-      let fold_dp _f r =  r
-
-      let ddr_default = None
-      let ddw_default = None
-      let ctrlr_default = None
-      let ctrlw_default = None
-
-      let is_ctrlr _ = assert false
-      let is_addr _ = assert false
-      let is_data _ = assert false
-
-      let fst_dp _ = assert false
-      let sequence_dp _ _ = assert false
+      include Dep.No
       (*******)
       (* RWM *)
       (*******)

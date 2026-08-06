@@ -36,23 +36,6 @@ module type S = sig
 
 (* Dependencies *)
   type dp
-  val equal_dp : dp -> dp -> bool
-  val pp_dp : dp -> string
-  val fold_dp : (dp -> 'a -> 'a) -> 'a -> 'a
-
-(* Defaults for backward compatibility *)
-  val ddr_default : dp option
-  val ddw_default : dp option
-  val ctrlr_default : dp option
-  val ctrlw_default : dp option
-
-(* Predicate for control on reads *)
-  val is_ctrlr : dp -> bool
-  val is_addr : dp -> bool
-  val is_data : dp -> bool
-
-(* Sequence dependencies *)
-  val fst_dp : dp -> dp list
-  val sequence_dp : dp -> dp -> dp list
+  include Dep.S with type dp := dp
 
 end

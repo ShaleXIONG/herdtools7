@@ -58,45 +58,7 @@ let var_fence f r = f default r
 (* Deps *)
 (********)
 
-type dp = ADDR | DATA | CTRL
-
-let equal_dp dp1 dp2 = match dp1,dp2 with
-  | ADDR,ADDR
-  | DATA,DATA
-  | CTRL,CTRL -> true
-  | (ADDR|DATA|CTRL),_ -> false
-
-let pp_dp = function
-  | ADDR -> "Addr"
-  | DATA -> "Data"
-  | CTRL -> "Ctrl"
-
-let fold_dp f r =  f ADDR (f DATA (f CTRL r))
-
-let ddr_default = Some ADDR
-let ddw_default = Some DATA
-let ctrlr_default = Some CTRL
-let ctrlw_default = Some CTRL
-
-let is_ctrlr = function
-  | CTRL -> true
-  | _ -> false
-
-let is_addr = function
-  | ADDR -> true
-  | _ -> false
-
-let is_data = function
-  | DATA -> true
-  | _ -> false
-
-let fst_dp = function
-  | CTRL -> [CTRL]
-  | ADDR|DATA -> []
-
-let sequence_dp d1 d2 = match d1 with
-| ADDR -> [d2]
-| DATA|CTRL -> []
+include Dep.Basic
 
 include
     ArchExtra_gen.Make

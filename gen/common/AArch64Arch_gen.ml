@@ -944,7 +944,7 @@ let var_fence f r = f default r
 (* Deps *)
 (********)
 
-module D = Dep
+module D = Dep.Full
 
 type csel = OkCsel|NoCsel
 
