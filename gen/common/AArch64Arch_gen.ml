@@ -249,7 +249,61 @@ type rmw = LrSc | LdOp of atomic_op | StOp of atomic_op | Swp | Cas | AllAmo
      distinguish whether `LDCLR` or `Amo.LdClr` takes effect. *)
   | SafeAmo
 
-module StructuredAtom = struct
+module StructuredAtom : sig
+  type access_order =
+    | OrderPlain
+    | OrderAcquire
+    | OrderAcquirePc
+    | OrderRelease
+    | OrderAtomic of atom_rw
+
+  type ordered_access =
+    | OrdinaryAccess
+    | AccessSize of MachMixed.t
+    | CapaAccess
+    | PteAccess of atom_pte
+    | NeonAccess of neon_opt
+
+  type atomic_access =
+    | AtomicOrdinary
+    | AtomicSize of MachMixed.t
+
+  type t = private
+    | Plain of ordered_access
+    | Acq of ordered_access
+    | AcqPc of ordered_access
+    | Rel of ordered_access
+    | Atomic of atom_rw * atomic_access
+    | CapaTagAccess
+    | CapaSealAccess
+    | TagAccess
+    | PairAccess of [ld_pair_opt | st_pair_opt] * pair_idx
+    | InstrAccess
+
+  val make : ordered_access -> access_order -> t
+  val plain : t
+  val default : t
+  val instr : t
+  val compare : t -> t -> int
+  val equal : t -> t -> bool
+  val ordered_access : t -> ordered_access option
+  val access_order : t -> access_order
+  val pp : t -> string
+  val get_access_atom : t option -> MachMixed.t option
+  val set_access_atom : t option -> MachMixed.t -> t option
+  val overlap : t -> t -> bool
+  val is_ifetch : t option -> bool
+  val is_pair : t option -> bool
+  val as_integers : t option -> int option
+  val worth_final : t -> bool
+  val get_machine_feature : t option -> StringSet.t
+  val applies : t -> dir -> bool
+  val applies_rmw : rmw -> t option -> t option -> bool
+  val is_tthm : WPTESet.t -> bool
+  val to_bank : t -> neon_opt Code.bank
+  val merge : t -> t -> t option
+  val fold : (t -> 'a -> 'a) -> 'a -> 'a
+end = struct
   type access_order =
     (* Plain access order, as in `P` or the order part of `h0`. *)
     | OrderPlain
@@ -311,7 +365,6 @@ module StructuredAtom = struct
   let plain = make OrdinaryAccess OrderPlain
   let default = make OrdinaryAccess (OrderAtomic PP)
   let instr = InstrAccess
-
 
   let compare_atom_rw rw1 rw2 =
     let rank = function
@@ -478,13 +531,6 @@ module StructuredAtom = struct
     | PL -> "L"
     | AP -> "A"
     | AL -> "AL"
-
-  let pp_order = function
-    | OrderPlain -> "P"
-    | OrderAcquire -> "A"
-    | OrderAcquirePc -> "Q"
-    | OrderRelease -> "L"
-    | OrderAtomic rw -> sprintf "X%s" (pp_atom_rw rw)
 
   let pp_pair_opt = function
     | `Pa -> ""
