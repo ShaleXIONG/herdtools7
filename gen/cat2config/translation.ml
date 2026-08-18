@@ -186,10 +186,21 @@ let implied_constraints (l : prim_rel list) :
        (fun (x, y, z) (x', y', z') -> (x @ x', y @ y', z @ z'))
        ([], [], [])
 
-type relax = Relax of E.edge list
+type relax_item =
+  | Concrete of E.edge
+  | Macro of string
 
-let join_relax (Relax r1 : relax) (Relax r2 : relax) : relax =
-  Relax (List.append r1 r2)
+type relax = (string, relax_item) Ast.t
+
+let concat_relax (relaxs : relax list) : relax =
+  let items =
+    List.concat_map
+      (function Ast.Seq items -> items | item -> [ item ])
+      relaxs
+  in
+  match items with
+  | [ item ] -> item
+  | items -> Ast.Seq items
 
 let try_match_edge (left : prim_set list) (core : seq_item list)
     (right : prim_set list) : relax list option =
@@ -265,10 +276,10 @@ let try_match_edge (left : prim_set list) (core : seq_item list)
         let edge = set_tgt right.extr edge in
         let edges =
           match insert with
-          | None -> [ edge ]
-          | Some ins -> E.[ edge; plain_edge (Insert ins) ]
+          | None -> [ Concrete edge ]
+          | Some ins -> E.[ Concrete edge; Concrete (plain_edge (Insert ins)) ]
         in
-        Relax edges)
+        concat_relax (List.map (fun edge -> Ast.One edge) edges))
   in
   Some relaxs
 
@@ -311,7 +322,7 @@ let translate_seq (Seq l : seq_item Ir.seq) : relax list =
                     let open Util.List.Infix in
                     let* edge = edge_alts in
                     let* prev_edges = st.relaxs in
-                    [ join_relax prev_edges edge ]
+                    [ concat_relax [ prev_edges; edge ] ]
                   in
                   let left = st.right in
                   { relaxs; left; core = []; right = Inter [] }
@@ -323,7 +334,7 @@ let translate_seq (Seq l : seq_item Ir.seq) : relax list =
               else core @ [ Set st.right; Rel r ]
             in
             { st with core; right = Inter [] })
-      { relaxs = [ Relax [] ]; left = Inter []; core = []; right = Inter [] }
+      { relaxs = [ Ast.Seq [] ]; left = Inter []; core = []; right = Inter [] }
       l
   in
   if st.core = [] then st.relaxs else []
@@ -342,7 +353,8 @@ let translate ~binding (nf : Ir.rel_nf) : relax list =
   let relaxs = Util.List.uniq ~eq:( = ) relaxs in
   relaxs
 
-let pp_relax : relax -> string = function
-  | Relax [ rlx ] -> E.pp_edge rlx
-  | Relax rlxs ->
-      Format.sprintf "[%s]" (String.concat ", " (List.map E.pp_edge rlxs))
+let pp_relax_item = function
+  | Concrete edge -> E.pp_edge edge
+  | Macro name -> name
+
+let pp_relax = Ast.pp Fun.id pp_relax_item
