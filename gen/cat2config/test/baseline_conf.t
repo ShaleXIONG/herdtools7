@@ -29,15 +29,15 @@
   
   ### IFB-ob
   ## [Exp & R]; ctrl; [IFB]; po
-  -safe [DpCtrl,ISB]
+  -safe [DpCtrl,ISB,@after([ExpObs|Hat])]
   ## [Exp & R]; pick-ctrl-dep; [IFB]; po
-  -safe [DpCtrlCsel,ISB]
+  -safe [DpCtrlCsel,ISB,@after([ExpObs|Hat])]
   ## [Exp & R]; addr; [Exp & M]; po; [IFB]; po
-  -safe [DpAddr,ISB***]
+  -safe [DpAddr,ISB***,@after([ExpObs|Hat])]
   ## [Exp & R]; pick-addr-dep; [Exp & M]; po; [IFB]; po
-  -safe [DpAddrCsel,ISB***]
+  -safe [DpAddrCsel,ISB***,@after([ExpObs|Hat])]
   ## DSB-ob; [IFB]; po
-  -safe [DSB.SY***,ISB] [DSB.LD*R*,ISB] [DSB.ST*W*,ISB]
+  -safe [DSB.SY***,ISB,@after([ExpObs|Hat])] [DSB.LD*R*,ISB,@after([ExpObs|Hat])] [DSB.ST*W*,ISB,@after([ExpObs|Hat])]
   
   ### dob
   ## addr
