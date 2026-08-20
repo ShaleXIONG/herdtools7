@@ -162,7 +162,8 @@ let apply_prim_rel (ed : partial_edge) (r : prim_rel) : partial_edge option =
     Some { ed with tedges = Some relaxs }
   else
     match r with
-    | Prim "loc" when ed.sd <> Code.Diff -> Some { ed with sd = Code.Same }
+    | Prim ("loc" | "same-loc") when ed.sd <> Code.Diff ->
+        Some { ed with sd = Code.Same }
     | Prim "ext" when ed.ie <> Code.Int -> Some { ed with ie = Code.Ext }
     | _ -> None
 
