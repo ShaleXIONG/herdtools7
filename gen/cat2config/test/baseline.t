@@ -14,19 +14,19 @@ aarch64.cat
   Coe
 aarch64hwreqs.cat
   $ mcat2config7 --set-libdir ./libdir --let DSB-ob libdir/aarch64.cat
-  DSB.SY***
+  [ExpObs,DSB.SY***]
   DSB.LD*R*
   DSB.ST*W*
   $ mcat2config7 --set-libdir ./libdir --let IFB-ob libdir/aarch64.cat
-  [DpCtrl,ISB]
-  [DpCtrlCsel,ISB]
-  [DpAddr,ISB***]
-  [DpAddrCsel,ISB***]
-  [DSB.SY***,ISB]
-  [DSB.LD*R*,ISB]
-  [DSB.ST*W*,ISB]
+  [DpCtrl,ISB,@after([ExpObs|Hat])]
+  [DpCtrlCsel,ISB,@after([ExpObs|Hat])]
+  [DpAddr,ISB***,@after([ExpObs|Hat])]
+  [DpAddrCsel,ISB***,@after([ExpObs|Hat])]
+  [ExpObs,DSB.SY***,ISB,@after([ExpObs|Hat])]
+  [DSB.LD*R*,ISB,@after([ExpObs|Hat])]
+  [DSB.ST*W*,ISB,@after([ExpObs|Hat])]
   $ mcat2config7 --set-libdir ./libdir --let dob libdir/aarch64.cat
-  DpAddr
+  [DpAddr,@after([ExpObs|Hat])]
   DpData*W
   DpCtrl*W
   [DpAddr,Po**W]
@@ -49,20 +49,20 @@ aarch64hwreqs.cat
   [LxSx,PosWRPQ,AmoQP]
   [Amo,PosWRPQ,AmoQP]
   $ mcat2config7 --set-libdir ./libdir --let bob libdir/aarch64.cat
-  DMB.SY***
-  DMB.LD*R*
+  [ExpObs,DMB.SY***,@after([ExpObs|Hat])]
+  [DMB.LD*R*,@after([ExpObs|Hat])]
   DMB.ST*WW
-  [AmoAL,PoLP]
+  [AmoAL,PoLP,@after([ExpObs|Hat])]
   PoLA
   [PoLA,AmoAP]
   [AmoPL,PoLA]
   [AmoPL,PoLA,AmoAP]
-  PoAP
-  [AmoAP,Po]
-  PoQP
-  [AmoQP,Po]
-  PoPL
-  [Po,AmoPL]
+  [PoAP,@after([ExpObs|Hat])]
+  [AmoAP,Po,@after([ExpObs|Hat])]
+  [PoQP,@after([ExpObs|Hat])]
+  [AmoQP,Po,@after([ExpObs|Hat])]
+  [ExpObs,PoPL]
+  [ExpObs,Po,AmoPL]
 aarch64deps.cat
   $ mcat2config7 --set-libdir ./libdir --let lwfs libdir/aarch64.cat
   Pos*W

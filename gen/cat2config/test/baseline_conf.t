@@ -21,7 +21,7 @@
   
   ### DSB-ob
   ## [M | DC.CVAU | IC]; po; [dsb.full]; po; [~((Imp & (TTD & M)) | (Imp & (Instr & R)))]
-  -safe DSB.SY***
+  -safe [ExpObs,DSB.SY***]
   ## [((Exp & R) \ NoRet) | (Imp & (Tag & R))]; po; [dsb.ld]; po; [~((Imp & (TTD & M)) | (Imp & (Instr & R)))]
   -safe DSB.LD*R*
   ## [Exp & W]; po; [dsb.st]; po; [~((Imp & (TTD & M)) | (Imp & (Instr & R)))]
@@ -29,19 +29,19 @@
   
   ### IFB-ob
   ## [Exp & R]; ctrl; [IFB]; po
-  -safe [DpCtrl,ISB]
+  -safe [DpCtrl,ISB,@after([ExpObs|Hat])]
   ## [Exp & R]; pick-ctrl-dep; [IFB]; po
-  -safe [DpCtrlCsel,ISB]
+  -safe [DpCtrlCsel,ISB,@after([ExpObs|Hat])]
   ## [Exp & R]; addr; [Exp & M]; po; [IFB]; po
-  -safe [DpAddr,ISB***]
+  -safe [DpAddr,ISB***,@after([ExpObs|Hat])]
   ## [Exp & R]; pick-addr-dep; [Exp & M]; po; [IFB]; po
-  -safe [DpAddrCsel,ISB***]
+  -safe [DpAddrCsel,ISB***,@after([ExpObs|Hat])]
   ## DSB-ob; [IFB]; po
-  -safe [DSB.SY***,ISB] [DSB.LD*R*,ISB] [DSB.ST*W*,ISB]
+  -safe [ExpObs,DSB.SY***,ISB,@after([ExpObs|Hat])] [DSB.LD*R*,ISB,@after([ExpObs|Hat])] [DSB.ST*W*,ISB,@after([ExpObs|Hat])]
   
   ### dob
   ## addr
-  -safe DpAddr
+  -safe [DpAddr,@after([ExpObs|Hat])]
   ## data
   -safe DpData*W
   ## ctrl; [(Exp & W) | HU | TLBI | DC.CVAU | IC]
@@ -71,19 +71,19 @@
   
   ### bob
   ## [(Exp & M) | (Imp & (Tag & R))]; po; [dmb.full]; po; [(Exp & M) | (Imp & (Tag & R)) | (MMU & FAULT)]
-  -safe DMB.SY***
+  -safe [ExpObs,DMB.SY***,@after([ExpObs|Hat])]
   ## [(Exp & (R \ NoRet)) | (Imp & (Tag & R))]; po; [dmb.ld]; po; [(Exp & M) | (Imp & (Tag & R)) | (MMU & FAULT)]
-  -safe DMB.LD*R*
+  -safe [DMB.LD*R*,@after([ExpObs|Hat])]
   ## [Exp & W]; po; [dmb.st]; po; [(Exp & W) | (MMU & FAULT)]
   -safe DMB.ST*WW
   ## [range([A]; amo; [L])]; po; [(Exp & M) | (Imp & (Tag & R)) | (MMU & FAULT)]
-  -safe [AmoAL,PoLP]
+  -safe [AmoAL,PoLP,@after([ExpObs|Hat])]
   ## [L]; po; [A]
   -safe PoLA [PoLA,AmoAP] [AmoPL,PoLA] [AmoPL,PoLA,AmoAP]
   ## [A | Q]; po; [(Exp & M) | (Imp & (Tag & R)) | (MMU & FAULT)]
-  -safe PoAP [AmoAP,Po] PoQP [AmoQP,Po]
+  -safe [PoAP,@after([ExpObs|Hat])] [AmoAP,Po,@after([ExpObs|Hat])] [PoQP,@after([ExpObs|Hat])] [AmoQP,Po,@after([ExpObs|Hat])]
   ## [(Exp & M) | (Imp & (Tag & R))]; po; [L]
-  -safe PoPL [Po,AmoPL]
+  -safe [ExpObs,PoPL] [ExpObs,Po,AmoPL]
   
   ### lwfs
   ## [(Exp & M) | (Imp & (Tag & R))]; (po & same-loc); [Exp & W]
