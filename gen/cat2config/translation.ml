@@ -313,6 +313,18 @@ let is_explicit_memory = function
   | Ir.Set (Inter [ Prim "M" ]) -> true
   | _ -> false
 
+let filter_relations f =
+  List.filter_map (function
+    | Ir.Rel (Inter rs) ->
+        begin match List.filter f rs with
+        | [] -> None
+        | rs -> Some (Ir.Rel (Inter rs))
+        end
+    | item -> Some item)
+
+let filter_unsupported_relations =
+  filter_relations (function Prim "sca-class" -> false | _ -> true)
+
 let add_external_communication_edges l relaxs =
   let prefix_external_communication_edge =
     match l with
@@ -336,6 +348,8 @@ let add_external_communication_edges l relaxs =
   else relaxs
 
 let translate_seq (Seq l : seq_item Ir.seq) : relax list =
+  (* TODO: Translate transitions within a single-copy-atomic class. *)
+  let l = filter_unsupported_relations l in
   let items = [ Ir.Set (Inter [ Prim "M" ]) ] @ l @ [ Set (Inter [ Prim "M" ]) ] in
   let st =
     fold_with_rest
