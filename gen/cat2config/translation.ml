@@ -372,6 +372,23 @@ let dependency_has_open_target = function
   | Ir.Rel (Inter [ Prim ("data" | "ctrl") ]) -> false
   | _ -> false
 
+let filter_relations f (Ir.Union seqs) =
+  Ir.Union
+    (List.map
+       (fun (Ir.Seq items) ->
+         Ir.Seq
+           (List.filter_map (function
+              | Ir.Rel (Inter rs) ->
+                  begin match List.filter f rs with
+                  | [] -> None
+                  | rs -> Some (Ir.Rel (Inter rs))
+                  end
+              | item -> Some item) items))
+       seqs)
+
+let filter_unsupported_relations =
+  filter_relations (function Prim "sca-class" -> false | _ -> true)
+
 let add_external_communication_edges l relaxs =
   let prefix_external_communication_edge =
     match l with
@@ -451,6 +468,7 @@ let translate ~binding (nf : Ir.rel_nf) : relax list =
   let nf = Ir.expand_domain_range nf in
   Log.debug (fun m ->
       m "`%s` after expanding domain/range:@.%a" binding Ir.pp_rel_nf nf);
+  let nf = filter_unsupported_relations nf in
   let relaxs =
     List.fold_left (fun acc seq -> acc @ translate_seq seq) [] (Ir.get_union nf)
   in
