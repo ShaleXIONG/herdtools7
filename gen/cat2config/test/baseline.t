@@ -18,13 +18,13 @@ aarch64hwreqs.cat
   DSB.LD*R*
   DSB.ST*W*
   $ mcat2config7 --set-libdir ./libdir --let IFB-ob libdir/aarch64.cat
-  [DpCtrl,ISB]
-  [DpCtrlCsel,ISB]
-  [DpAddr,ISB***]
-  [DpAddrCsel,ISB***]
-  [DSB.SY***,ISB]
-  [DSB.LD*R*,ISB]
-  [DSB.ST*W*,ISB]
+  [DpCtrl,ISB,@after([ExpObs|Hat])]
+  [DpCtrlCsel,ISB,@after([ExpObs|Hat])]
+  [DpAddr,ISB***,@after([ExpObs|Hat])]
+  [DpAddrCsel,ISB***,@after([ExpObs|Hat])]
+  [DSB.SY***,ISB,@after([ExpObs|Hat])]
+  [DSB.LD*R*,ISB,@after([ExpObs|Hat])]
+  [DSB.ST*W*,ISB,@after([ExpObs|Hat])]
   $ mcat2config7 --set-libdir ./libdir --let dob libdir/aarch64.cat
   DpAddr
   DpData*W

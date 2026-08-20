@@ -192,6 +192,13 @@ type relax_item =
 
 type relax = (string, relax_item) Ast.t
 
+let exp_obs = Ast.One (Macro "ExpObs")
+
+let after_observation =
+  Ast.Predicate
+    ( "after",
+      Ast.Choice [ exp_obs; Ast.One (Concrete E.(plain_edge Hat)) ] )
+
 let concat_relax (relaxs : relax list) : relax =
   let items =
     List.concat_map
@@ -297,8 +304,38 @@ let rec fold_with_rest (f : 'acc -> 'a -> 'a list -> 'acc) (acc : 'acc) :
       let acc = f acc x xs in
       fold_with_rest f acc xs
 
+let is_po = function
+  | Ir.Rel (Inter [ Prim "po" ]) -> true
+  | _ -> false
+
+let is_explicit_memory = function
+  | Ir.Set (Inter [ Prim "M" ]) -> true
+  | _ -> false
+
+let add_external_communication_edges l relaxs =
+  let prefix_external_communication_edge =
+    match l with
+    | left :: po :: _ -> is_explicit_memory left && is_po po
+    | _ -> false
+  in
+  let suffix_external_communication_edge =
+    match List.rev l with
+    | right :: po :: _ -> is_explicit_memory right && is_po po
+    | po :: rest when is_po po ->
+        List.exists (function Ir.Rel _ -> true | Ir.Set _ -> false) rest
+    | _ -> false
+  in
+  let relaxs =
+    if prefix_external_communication_edge then
+      List.map (fun relax -> concat_relax [ exp_obs; relax ]) relaxs
+    else relaxs
+  in
+  if suffix_external_communication_edge then
+    List.map (fun relax -> concat_relax [ relax; after_observation ]) relaxs
+  else relaxs
+
 let translate_seq (Seq l : seq_item Ir.seq) : relax list =
-  let l = [ Ir.Set (Inter [ Prim "M" ]) ] @ l @ [ Set (Inter [ Prim "M" ]) ] in
+  let items = [ Ir.Set (Inter [ Prim "M" ]) ] @ l @ [ Set (Inter [ Prim "M" ]) ] in
   let st =
     fold_with_rest
       (fun st item rest ->
@@ -335,9 +372,11 @@ let translate_seq (Seq l : seq_item Ir.seq) : relax list =
             in
             { st with core; right = Inter [] })
       { relaxs = [ Ast.Seq [] ]; left = Inter []; core = []; right = Inter [] }
-      l
+      items
   in
-  if st.core = [] then st.relaxs else []
+  if st.core = [] then
+    add_external_communication_edges l st.relaxs
+  else []
 
 let translate ~binding (nf : Ir.rel_nf) : relax list =
   Log.info (fun m -> m "Translating component of `%s`" binding);
