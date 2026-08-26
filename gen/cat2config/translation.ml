@@ -402,7 +402,9 @@ let filter_relations f (Ir.Union seqs) =
        seqs)
 
 let filter_unsupported_relations =
-  filter_relations (function Prim "sca-class" -> false | _ -> true)
+  filter_relations (function
+    | Prim ("sca-class" | "intervening") -> false
+    | _ -> true)
 
 let add_external_communication_edges l relaxs =
   let prefix_external_communication_edge =
