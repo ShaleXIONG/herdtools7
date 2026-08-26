@@ -205,9 +205,28 @@ let concat_relax (relaxs : relax list) : relax =
       (function Ast.Seq items -> items | item -> [ item ])
       relaxs
   in
+  let items =
+    List.fold_right
+      (fun item items ->
+        match item,items with
+        | Ast.One (Concrete e1),Ast.One (Concrete e2) :: _
+          when E.is_id e1.edge && E.compare e1 e2 = 0 -> items
+        | _ -> item :: items)
+      items []
+  in
   match items with
   | [ item ] -> item
   | items -> Ast.Seq items
+
+let split_edge_annotations (edge : E.edge) : E.edge list =
+  let annotation_edge atom = E.{ edge = Id; a1 = Some atom; a2 = Some atom } in
+  let annotations = function
+    | None -> []
+    | Some atom -> [ annotation_edge atom ]
+  in
+  annotations edge.a1
+  @ [ { edge with a1 = None; a2 = None } ]
+  @ annotations edge.a2
 
 let try_match_edge (left : prim_set list) (core : seq_item list)
     (right : prim_set list) : relax list option =
@@ -283,8 +302,10 @@ let try_match_edge (left : prim_set list) (core : seq_item list)
         let edge = set_tgt right.extr edge in
         let edges =
           match insert with
-          | None -> [ Concrete edge ]
-          | Some ins -> E.[ Concrete edge; Concrete (plain_edge (Insert ins)) ]
+          | None -> List.map (fun edge -> Concrete edge) (split_edge_annotations edge)
+          | Some ins ->
+              List.map (fun edge -> Concrete edge) (split_edge_annotations edge)
+              @ E.[ Concrete (plain_edge (Insert ins)) ]
         in
         concat_relax (List.map (fun edge -> Ast.One edge) edges))
   in
