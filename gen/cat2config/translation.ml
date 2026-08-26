@@ -218,6 +218,65 @@ let concat_relax (relaxs : relax list) : relax =
   | [ item ] -> item
   | items -> Ast.Seq items
 
+let factor_relaxes relaxs =
+  let sequence = function Ast.Seq items -> items | item -> [ item ] in
+  let merge_optional shorter longer =
+    let rec do_rec prefix shorter longer =
+      match shorter,longer with
+      | [],[extra] -> Some (List.rev_append prefix [Ast.Opt extra])
+      | short::shorter,long::longer when short = long ->
+          do_rec (short::prefix) shorter longer
+      | _,extra::longer when shorter = longer ->
+          Some (List.rev_append prefix (Ast.Opt extra::shorter))
+      | _,_ -> None in
+    do_rec [] shorter longer in
+  let merge_optional_relaxes lhs rhs =
+    let lhs = sequence lhs and rhs = sequence rhs in
+    if List.length lhs + 1 = List.length rhs then
+      Option.map concat_relax (merge_optional lhs rhs)
+    else if List.length rhs + 1 = List.length lhs then
+      Option.map concat_relax (merge_optional rhs lhs)
+    else None in
+  let merge_choices lhs rhs =
+    let lhs = sequence lhs and rhs = sequence rhs in
+    if List.length lhs <> List.length rhs then None else
+      let differences =
+        List.fold_left2
+          (fun differences lhs rhs ->
+            if lhs = rhs then differences else (lhs,rhs)::differences)
+          [] lhs rhs in
+      match differences with
+      | [ differing ] ->
+          let differing_lhs,differing_rhs = differing in
+          let merged =
+            List.map2
+              (fun lhs rhs ->
+                if lhs = rhs then lhs
+                else Ast.Choice [differing_lhs;differing_rhs])
+              lhs rhs in
+          Some (concat_relax merged)
+      | _ -> None in
+  let rec merge_one merge prefix = function
+    | [] -> None
+    | relax::rest ->
+        let rec with_relax between = function
+          | [] -> merge_one merge (relax::prefix) rest
+          | candidate::candidates ->
+              begin match merge relax candidate with
+              | Some merged ->
+                  Some (List.rev_append prefix (merged::List.rev_append between candidates))
+              | None -> with_relax (candidate::between) candidates
+              end in
+        with_relax [] rest in
+  let rec do_rec relaxs =
+    match merge_one merge_optional_relaxes [] relaxs with
+    | Some relaxs -> do_rec relaxs
+    | None ->
+        match merge_one merge_choices [] relaxs with
+        | Some relaxs -> do_rec relaxs
+        | None -> relaxs in
+  do_rec relaxs
+
 let split_edge_annotations (edge : E.edge) : E.edge list =
   let annotation_edge atom = E.{ edge = Id; a1 = Some atom; a2 = Some atom } in
   let annotations = function
@@ -437,7 +496,7 @@ let translate ~binding (nf : Ir.rel_nf) : relax list =
     List.fold_left (fun acc seq -> acc @ translate_seq seq) [] (Ir.get_union nf)
   in
   let relaxs = Util.List.uniq ~eq:( = ) relaxs in
-  relaxs
+  factor_relaxes relaxs
 
 let pp_relax_item = function
   | Concrete edge -> E.pp_edge edge
