@@ -40,29 +40,29 @@ aarch64hwreqs.cat
   $ mcat2config7 --set-libdir ./libdir --let aob libdir/aarch64.cat
   LxSx
   Amo
-  [LxSx,PosWRPA]
-  [Amo,PosWRPA]
-  [LxSx,PosWRPA,AmoAP]
-  [Amo,PosWRPA,AmoAP]
-  [LxSx,PosWRPQ]
-  [Amo,PosWRPQ]
-  [LxSx,PosWRPQ,AmoQP]
-  [Amo,PosWRPQ,AmoQP]
+  [LxSx,PosWR,A]
+  [Amo,PosWR,A]
+  [LxSx,PosWR,A,Amo]
+  [Amo,PosWR,A,Amo]
+  [LxSx,PosWR,Q]
+  [Amo,PosWR,Q]
+  [LxSx,PosWR,Q,Amo]
+  [Amo,PosWR,Q,Amo]
   $ mcat2config7 --set-libdir ./libdir --let bob libdir/aarch64.cat
   [ExpObs,DMB.SY***,@after([ExpObs|Hat])]
   [DMB.LD*R*,@after([ExpObs|Hat])]
   DMB.ST*WW
-  [AmoAL,PoLP,@after([ExpObs|Hat])]
-  PoLA
-  [PoLA,AmoAP]
-  [AmoPL,PoLA]
-  [AmoPL,PoLA,AmoAP]
-  [PoAP,@after([ExpObs|Hat])]
-  [AmoAP,Po,@after([ExpObs|Hat])]
-  [PoQP,@after([ExpObs|Hat])]
-  [AmoQP,Po,@after([ExpObs|Hat])]
-  [ExpObs,PoPL]
-  [ExpObs,Po,AmoPL]
+  [A,Amo,L,Po,@after([ExpObs|Hat])]
+  [L,Po,A]
+  [L,Po,A,Amo]
+  [Amo,L,Po,A]
+  [Amo,L,Po,A,Amo]
+  [A,Po,@after([ExpObs|Hat])]
+  [A,Amo,Po,@after([ExpObs|Hat])]
+  [Q,Po,@after([ExpObs|Hat])]
+  [Q,Amo,Po,@after([ExpObs|Hat])]
+  [ExpObs,Po,L]
+  [ExpObs,Po,Amo,L]
 aarch64deps.cat
   $ mcat2config7 --set-libdir ./libdir --let lwfs libdir/aarch64.cat
   Pos*W
