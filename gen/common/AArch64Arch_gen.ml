@@ -240,7 +240,8 @@ type pair_idx = UnspecLoc
 
 type atom_acc =
   | Plain of capa_opt | Acq of capa_opt | AcqPc of capa_opt | Rel of capa_opt
-  | Atomic of atom_rw | Tag | CapaTag | CapaSeal | Pte of atom_pte | Neon of neon_opt
+  | Atomic of atom_rw | Tag | TagFault
+  | CapaTag | CapaSeal | Pte of atom_pte | Neon of neon_opt
   | Pair of [ld_pair_opt | st_pair_opt] * pair_idx | Instr
 
 let  plain = Plain None
@@ -448,6 +449,7 @@ let applies_atom (a,_) d =
   | Pte (Read|ReadAcq|ReadAcqPc),R
   | Instr, R
   | (Plain _|Atomic _|Tag|CapaTag|CapaSeal|Neon _),(R|W)
+  | TagFault,W
     -> true
   | Pair ((`Pa|`PaN|`PaIQ|`PaA),_),R -> true
   | Pair ((`Pa|`PaN|`PaIL|`PaL),_),W -> true
@@ -505,6 +507,7 @@ let is_tthm fields =
      | AcqPc o -> sprintf "Q%s" (pp_opt o)
      | Plain o -> sprintf "P%s" (pp_opt o)
      | Tag -> "T"
+     | TagFault -> "F"
      | CapaTag -> "Ct"
      | CapaSeal -> "Cs"
      | Pte p -> sprintf "Pte%s" (pp_atom_pte p)
@@ -564,7 +567,7 @@ let is_tthm fields =
    let fold_atom_rw f r = f PP (f PL (f AP (f AL r)))
 
    let fold_tag =
-     if do_memtag then fun f r -> f Tag r
+     if do_memtag then fun f r -> f TagFault (f Tag r)
      else fun _f r -> r
 
    let fold_morello =
@@ -643,7 +646,7 @@ let is_tthm fields =
 
    let worth_final (a,_) = match a with
      | Atomic _ -> true
-     | Acq _|AcqPc _|Rel _|Plain _|Tag|Instr
+     | Acq _|AcqPc _|Rel _|Plain _|Tag|TagFault|Instr
      | CapaTag|CapaSeal
      | Pte _|Neon _
      | Pair _
@@ -764,7 +767,7 @@ let is_tthm fields =
    | Pair (_,UnspecLoc),_ -> Code.Pair
    | Instr,_ -> Code.Instr
    | (Tag|CapaTag|CapaSeal|Pte _|Neon _),Some _ -> assert false
-   | (Plain _|Acq _|AcqPc _|Rel _|Atomic _),_
+   | (Plain _|TagFault|Acq _|AcqPc _|Rel _|Atomic _),_
      -> Code.Ord
 
 
@@ -787,9 +790,9 @@ let overwrite_value v ao w = match ao with
 | None
 | Some
     ((Atomic _|Acq _|AcqPc _|Rel _|Plain _|
-    Tag|CapaTag|CapaSeal|Pte _|Neon _|Pair _|Instr),None)
+    Tag|TagFault|CapaTag|CapaSeal|Pte _|Neon _|Pair _|Instr),None)
   -> w (* total overwrite *)
-| Some ((Atomic _|Acq _|AcqPc _|Rel _|Plain _|Neon _|Instr),Some (sz,o)) ->
+| Some ((Atomic _|Acq _|AcqPc _|Rel _|Plain _|TagFault|Neon _|Instr),Some (sz,o)) ->
    ValsMixed.overwrite_value v sz o w
 | Some ((Tag|CapaTag|CapaSeal|Pte _|Pair _),Some _) ->
     assert false
@@ -798,8 +801,8 @@ let overwrite_value v ao w = match ao with
   | None
   | Some
       ((Atomic _|Acq _|AcqPc _|Rel _|Plain _
-        |Tag|CapaTag|CapaSeal|Pte _|Neon _|Pair _|Instr),None) -> v
-  | Some ((Atomic _|Acq _|AcqPc _|Rel _|Plain _|Tag|CapaTag|CapaSeal|Neon _),Some (sz,o)) ->
+        |Tag|TagFault|CapaTag|CapaSeal|Pte _|Neon _|Pair _|Instr),None) -> v
+  | Some ((Atomic _|Acq _|AcqPc _|Rel _|Plain _|TagFault|Tag|CapaTag|CapaSeal|Neon _),Some (sz,o)) ->
      ValsMixed.extract_value v sz o
   | Some ((Pte _|Pair _|Instr),Some _) -> assert false
 
