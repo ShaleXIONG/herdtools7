@@ -386,6 +386,8 @@ module Value = struct
       let open AArch64PteVal in
       pte_val.valid = 0 || pte_val.af = 0 || (dir = Code.W && pte_val.db = 0)
 
+    let is_tag_fault = function Some (TagFault,None) -> true | _ -> false
+
     (* check if an pte annotation `pte` will affect a pte `field` *)
     let affect_pte_field field pte =
       let open WPTE in
@@ -756,7 +758,7 @@ let is_tthm fields =
      | Sv4i | Ne4 | Ne4i -> 16
 
    let atom_to_bank = function
-   | Tag,None -> Code.Tag
+   | (Tag|TagFault),None -> Code.Tag
    (* TTHM feature only apply to ordinary R/W *)
    | Pte (Set p|SetRel p),None when is_tthm p -> Code.Ord
    | Pte (ReadHAAcq|ReadHAAcqPc),None -> Code.Ord
@@ -766,8 +768,8 @@ let is_tthm fields =
    | Neon n,None -> Code.VecReg n
    | Pair (_,UnspecLoc),_ -> Code.Pair
    | Instr,_ -> Code.Instr
-   | (Tag|CapaTag|CapaSeal|Pte _|Neon _),Some _ -> assert false
-   | (Plain _|TagFault|Acq _|AcqPc _|Rel _|Atomic _),_
+   | (Tag|TagFault|CapaTag|CapaSeal|Pte _|Neon _),Some _ -> assert false
+   | (Plain _|Acq _|AcqPc _|Rel _|Atomic _),_
      -> Code.Ord
 
 
