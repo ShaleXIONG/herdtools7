@@ -620,8 +620,7 @@ end = struct
     WPTESet.mem HD fields || WPTESet.mem HA fields
 
   let to_bank = function
-    | MemoryTagAccess -> Code.Tag
-    | MemoryTagFaultAccess -> Code.Ord
+    | MemoryTagAccess|MemoryTagFaultAccess -> Code.Tag
     | PteAccess (Set (_,p))
       when is_tthm p -> Code.Ord
     | PteAccess (ReadHA _) -> Code.Ord
@@ -895,6 +894,10 @@ module Value = struct
     let can_fault dir pte_val =
       let open AArch64PteVal in
       pte_val.valid = 0 || pte_val.af = 0 || (dir = Code.W && pte_val.db = 0)
+
+    let is_tag_fault = function
+      | Some StructuredAtom.MemoryTagFaultAccess -> true
+      | _ -> false
 
     (* check if an pte annotation `pte` will affect a pte `field` *)
     let affect_pte_field field pte =
