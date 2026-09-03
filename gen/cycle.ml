@@ -1147,7 +1147,10 @@ let check_cycle c =
               check_fault,st
             | _ -> CoSt.fault_update st W n.evt.tag
           else CoSt.fault_update st R n.evt.tag in
-        n.evt <- { n.evt with check_fault };
+        let check_value = match check_fault with
+          | Some (_,true) -> Some false
+          | _ -> check_value in
+        n.evt <- { n.evt with check_fault; check_value };
         (next_x_ok, st)
       | _,Some R,Pair ->
         let st = CoSt.implicit_pte_update st R in
