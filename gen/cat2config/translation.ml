@@ -144,9 +144,9 @@ let build_tedges : prim_rel -> E.tedge list =
   | Prim "co" -> [ E.Communication (Co, UnspecCom) ]
   | Prim "rf" -> [ E.Communication (Rf, UnspecCom) ]
   | Fence f -> [ E.Fenced (A.Barrier f, UnspecLoc, Code.Irr, Code.Irr) ]
-  | Prim "amo" -> [ E.Rmw A.RMW.AllAmo ]
+  | Prim "amo" -> [ E.Rmw A.RMW.SafeAmo ]
   | Prim "lxsx" -> [ E.Rmw A.RMW.LrSc ]
-  | Prim "rmw" -> [ E.Rmw A.RMW.LrSc; E.Rmw A.RMW.AllAmo ]
+  | Prim "rmw" -> [ E.Rmw A.RMW.LrSc; E.Rmw A.RMW.SafeAmo ]
   | Prim "addr" -> dp_tedges Dep.ADDR A.NoCsel
   | Prim "ctrl" -> dp_tedges Dep.CTRL A.NoCsel
   | Prim "data" -> dp_tedges Dep.DATA A.NoCsel
@@ -269,10 +269,10 @@ let factor_relaxes relaxs =
               end in
         with_relax [] rest in
   let rec do_rec relaxs =
-    match merge_one merge_optional_relaxes [] relaxs with
+    match merge_one merge_choices [] relaxs with
     | Some relaxs -> do_rec relaxs
     | None ->
-        match merge_one merge_choices [] relaxs with
+        match merge_one merge_optional_relaxes [] relaxs with
         | Some relaxs -> do_rec relaxs
         | None -> relaxs in
   do_rec relaxs
