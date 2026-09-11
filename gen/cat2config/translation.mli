@@ -18,6 +18,12 @@ type relax (* Type of diy relaxations *)
 
 val pp_relax : relax -> string
 
+(* Whether this relaxation is exactly [Pos*W]. *)
+val is_pos_star_w : relax -> bool
+
+(* Remove the variants of a relaxation already covered by [Pos*W]. *)
+val subtract_pos_star_w : relax -> relax list
+
 (* Translate a cat relation into a (possibly-empty) list of diy relaxations.
 
    Each relaxation from this list is to be interpreted as a stand-alone,

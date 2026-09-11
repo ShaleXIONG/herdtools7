@@ -213,6 +213,35 @@ let run ~(opts : Opts.t) (tree : AST.ins list) =
             in
             Some (var, translated))
   in
+  let has_pos_star_w =
+    List.exists
+      (fun (_, relaxss) ->
+        List.exists
+          (fun (relaxs, _) -> List.exists Translation.is_pos_star_w relaxs)
+          relaxss)
+      requested_bindings
+  in
+  let requested_bindings =
+    if opts.conf && has_pos_star_w then
+      List.map
+        (fun (var, relaxss) ->
+          let relaxss =
+            List.map
+              (fun (relaxs, ast_e) ->
+                let relaxs =
+                  List.concat_map
+                    (fun relax ->
+                      if Translation.is_pos_star_w relax then [ relax ]
+                      else Translation.subtract_pos_star_w relax)
+                    relaxs
+                in
+                (relaxs, ast_e))
+              relaxss
+          in
+          (var, relaxss))
+        requested_bindings
+    else requested_bindings
+  in
   if opts.conf then
     let open Format in
     requested_bindings

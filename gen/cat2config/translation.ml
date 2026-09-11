@@ -503,3 +503,118 @@ let pp_relax_item = function
   | Macro name -> name
 
 let pp_relax = Ast.pp Fun.id pp_relax_item
+
+let is_pos_star_w = function
+  | Ast.One
+      (Concrete
+        { E.edge = E.Po (Code.Same, Code.Irr, Code.Dir Code.W);
+          a1 = None;
+          a2 = None }) -> true
+  | _ -> false
+
+let rec expand_relax = function
+  | Ast.One _ as relax -> [ [ relax ] ]
+  | Ast.Predicate _ as relax -> [ [ relax ] ]
+  | Ast.Opt relax -> [] :: expand_relax relax
+  | Ast.Choice relaxs -> List.concat_map expand_relax relaxs
+  | Ast.Seq relaxs ->
+      List.fold_left
+        (fun prefixes relax ->
+          let suffixes = expand_relax relax in
+          List.concat_map
+            (fun prefix -> List.map (fun suffix -> prefix @ suffix) suffixes)
+            prefixes)
+        [ [] ] relaxs
+
+let is_local_order = function
+  | Ast.One (Concrete { E.edge = E.Po _ | E.Dp _ | E.Fenced _; _ }) -> true
+  | _ -> false
+
+let is_rmw = function
+  | Ast.One (Concrete { E.edge = E.Rmw _; _ }) -> true
+  | _ -> false
+
+let is_transparent = function
+  | Ast.One (Concrete { E.edge = E.Id | E.Insert _; _ }) | Ast.Predicate _ ->
+      true
+  | _ -> false
+
+let trailing_local_order_indices relaxs =
+  let indexed = List.mapi (fun index relax -> index,relax) relaxs |> List.rev in
+  let rec do_rec started indices = function
+    | [] -> indices
+    | (_,relax)::rest when is_transparent relax ->
+        do_rec started indices rest
+    | (index,relax)::rest when is_local_order relax ->
+        do_rec true (index::indices) rest
+    | (_,relax)::rest when started && is_rmw relax ->
+        do_rec started indices rest
+    | _ when started -> indices
+    | _ -> []
+  in
+  do_rec false [] indexed
+
+let map_at index f =
+  List.mapi (fun current item -> if current = index then f item else item)
+
+let map_local_order index f relaxs =
+  map_at index
+    (function
+      | Ast.One (Concrete edge) ->
+          Ast.One (Concrete { edge with E.edge = f edge.edge })
+      | _ -> assert false)
+    relaxs
+
+let local_order_edge index relaxs =
+  match List.nth relaxs index with
+  | Ast.One (Concrete edge) -> edge
+  | _ -> assert false
+
+let subtract_pos_star_w_sequence relaxs =
+  match trailing_local_order_indices relaxs with
+  | [] -> [ relaxs ]
+  | indices ->
+      let last = Misc.last indices in
+      let last_edge = local_order_edge last relaxs in
+      let impossible =
+        List.exists
+          (fun index -> E.loc_sd (local_order_edge index relaxs) = Code.Diff)
+          indices
+        || match E.dir_tgt last_edge with
+           | Code.Dir Code.R | Code.NoDir -> true
+           | Code.Dir Code.W | Code.Irr -> false
+      in
+      if impossible then [ relaxs ]
+      else
+        let alternatives,current =
+          List.fold_left
+            (fun (alternatives,current) index ->
+              match E.loc_sd (local_order_edge index current) with
+              | Code.UnspecLoc ->
+                  let different = map_local_order index (set_sd Code.Diff) current in
+                  let same = map_local_order index (set_sd Code.Same) current in
+                  (different::alternatives,same)
+              | Code.Same -> (alternatives,current)
+              | Code.Diff -> assert false)
+            ([],relaxs) indices
+        in
+        let alternatives =
+          match E.dir_tgt (local_order_edge last current) with
+          | Code.Irr ->
+              map_at last
+                (function
+                  | Ast.One (Concrete edge) ->
+                      Ast.One (Concrete (E.set_tgt Code.R edge))
+                  | _ -> assert false)
+                current
+              :: alternatives
+          | Code.Dir Code.W -> alternatives
+          | Code.Dir Code.R | Code.NoDir -> assert false
+        in
+        List.rev alternatives
+
+let subtract_pos_star_w relax =
+  expand_relax relax
+  |> List.concat_map subtract_pos_star_w_sequence
+  |> List.map concat_relax
+  |> factor_relaxes
