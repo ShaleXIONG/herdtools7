@@ -1068,7 +1068,18 @@ let variant_info =
     |> ( function
       | [] -> None
       | l -> Some ("Variant", StringSet.pp_id " " (StringSet.of_list l)) )
-let basic_info scope prefetch com_edges cycle_description =
+let fault_handler_info c =
+  let labels =
+    C.fold
+      (fun n labels ->
+        match n.C.evt.C.check_fault with
+        | Some {C.label;state=C.Handler} when not (is_async_fault n) ->
+            Label.Set.add label labels
+        | _ -> labels)
+      c Label.Set.empty in
+  Label.Set.pp_str " " Label.pp labels
+
+let basic_info scope prefetch com_edges cycle_description faults =
   let convert_to_option_pair key value =
     match key,value with "",_ | _,"" -> None | _ -> Some(key, value) in
   (* Some internal metadata might be empty, if the string value is "".
@@ -1080,6 +1091,7 @@ let basic_info scope prefetch com_edges cycle_description =
     :: ( if Variant_gen.has Variant_gen.Self O.variant then None else convert_to_option_pair "Prefetch" prefetch )
     :: ( convert_to_option_pair "Com" com_edges )
     :: ( convert_to_option_pair "Orig" cycle_description )
+    :: ( convert_to_option_pair "FaultHandler" faults )
     :: [] )
 
 (* Merge user specified `info` with internal defined `info`.
@@ -1114,9 +1126,10 @@ let test_of_cycle name
     match variant_info with
     | None -> Comp.get_archinfo c
     | Some variant -> variant :: Comp.get_archinfo c in
+  let faults = fault_handler_info c in
   let info =
     if O.metadata then
-      merge_to_left ( mandatory_info @ (basic_info scope prf coms com) ) info
+      merge_to_left ( mandatory_info @ (basic_info scope prf coms com faults) ) info
     else mandatory_info in
   let dump = {
     MiscParser.info = info;
