@@ -266,6 +266,7 @@ let () =
     let realdep = !Config.realdep
     let variant = !Config.variant
     let wildcard = true
+    let fault_handler = !Config.fault_handler
   end in
   let module T = Top_gen.Make(Co) in
   let builder = match !Config.arch with

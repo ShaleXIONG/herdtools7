@@ -25,6 +25,7 @@ module type Config = sig
   val moreedges : bool
   val variant : Variant_gen.t -> bool
   val wildcard : bool
+  val fault_handler : bool
 end
 
 module type S = sig

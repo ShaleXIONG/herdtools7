@@ -257,6 +257,7 @@ let () =
     let realdep = !Config.realdep
     let variant = !Config.variant
     let wildcard = false
+    let fault_handler = !Config.fault_handler
   end in
   (match !Config.arch with
   | `X86 ->

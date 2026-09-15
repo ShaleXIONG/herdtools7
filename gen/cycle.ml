@@ -26,6 +26,14 @@ module type S = sig
   module SIMD : Atom.SIMD
   module RMW : Atom.RMW with type atom = atom
 
+  (* Fault check for an instruction, including its label, whether it faults,
+     and whether a fault handler should be generated. *)
+  type fault_check = {
+    label : Label.t;
+    faults : bool;
+    handler : bool;
+  }
+
   (* TODO can be parametric by dir *)
   type event =
       { loc : loc ; ord : int;
@@ -46,9 +54,7 @@ module type S = sig
         tcell : Value.v array ; (* value of tag memory after event *)
         bank : SIMD.atom Code.bank ;
         idx : int ;
-        (* If need to check this operation can fault.
-           Label the instruction with `Label.t`. *)
-        check_fault : (Label.t * bool) option;
+        check_fault : fault_check option;
         (* If the effect of this event should be check in the postcondition.
            E.g., if the value changes since last time,
            therefore, any read event should lead to a postcondition
@@ -139,6 +145,7 @@ module type Config = sig
   val naturalsize : MachSize.sz
   val hexa : bool
   val init_value : int
+  val fault_handler : bool
   val variant : Variant_gen.t -> bool
 end
 
@@ -159,6 +166,7 @@ module Make (O:Config) (E:Edge.S) :
   let do_sme = O.variant Variant_gen.SME
   let do_no_fault = O.variant Variant_gen.NoFault
   let do_store_only = O.variant Variant_gen.StoreOnly
+  let do_async = O.variant Variant_gen.Async
 
   type fence = E.fence
   type edge = E.edge
@@ -166,6 +174,14 @@ module Make (O:Config) (E:Edge.S) :
   type atom = E.atom
   module Value = E.Value
   module RMW = E.RMW
+
+  (* Fault check for an instruction, including its label, whether it faults,
+     and whether a fault handler should be generated. *)
+  type fault_check = {
+    label : Label.t;
+    faults : bool;
+    handler : bool;
+  }
 
   type event =
       { loc : loc ; ord : int; tag : int;
@@ -180,7 +196,7 @@ module Make (O:Config) (E:Edge.S) :
         tcell : Value.v array ; (* value of tag cell at node exit *)
         bank : SIMD.atom Code.bank ;
         idx : int ;
-        check_fault : (Label.t * bool) option;
+        check_fault : fault_check option;
         check_value : bool option }
 
   let pte_default = Value.default_pte "*"
@@ -223,6 +239,30 @@ module Make (O:Config) (E:Edge.S) :
       mutable store : node ;
     }
 
+  (* A single-instruction RMW is represented by separate read and write event
+     nodes. Apply `pred` to both; other nodes, including each half of LxSx,
+     represent separate instructions and are checked independently. *)
+  let same_instruction_predicate pred n =
+    pred n ||
+    match n.edge.E.edge,n.prev.edge.E.edge with
+    | E.Rmw rmw,_ when E.RMW.is_one_instruction rmw -> pred n.next
+    | _,E.Rmw rmw when E.RMW.is_one_instruction rmw -> pred n.prev
+    | _,_ -> false
+
+  (* Generate a handler only for a positive synchronous fault when either
+     `-fault-handler` selects all such faults or `Fault` selects an event
+     belonging to the same instruction. *)
+  let update_fault_check n check faults =
+    let handler =
+      faults && not do_async &&
+      same_instruction_predicate
+        (fun n -> O.fault_handler || Value.need_fault_handler n.evt.atom) n in
+    { check with faults; handler }
+
+  let make_fault_check n faults =
+    Some (update_fault_check n
+      {label=Label.next_label "L"; faults=false; handler=false} faults)
+
   let debug_dir d = match d with
          Some W -> "W" | Some R -> "R" | None -> "_"
 
@@ -261,7 +301,9 @@ module Make (O:Config) (E:Edge.S) :
       ( if e.rmw then "rmw" else "" )
       ( match debug_vec e.cell with | "" -> "" | s -> "cell=[" ^ s ^"] ")
       (debug_val e.v) (debug_tag e) (debug_morello e) (debug_vector e)
-      ( match e.check_fault with | Some (n,b) -> sprintf "%s:%b" n b | None -> "none" )
+      ( match e.check_fault with
+        | Some {label;faults;handler} -> sprintf "%s:%b:%b" label faults handler
+        | None -> "none" )
       ( match e.check_value with | Some b -> sprintf "%b" b | None -> "none" )
 
   let debug_edge = E.pp_edge
@@ -592,27 +634,28 @@ module CoSt = struct
   let set_check_fault st = {st with check_fault = Irr }
 
   (* Check if `pte_val` might fault *)
-  let label_pte_fault dir pte_val =
-    Some ( (Label.next_label "L"), (Value.can_fault dir pte_val) )
+  let label_pte_fault dir pte_val n =
+    make_fault_check n (Value.can_fault dir pte_val)
 
   (* Helper function returns a fresh label and a boolean for if it should fault,
      if a fault check is needed. Otherwise return `None`. *)
-  let fault_update st dir tag =
+  let fault_update st dir n =
+    let tag = n.evt.tag in
     let unset_check_fault st = {st with check_fault = NoDir } in
     let pte_val = get_pte_value st in
     match st.check_fault,dir with
     | _,_ when do_no_fault -> None,unset_check_fault st
     | NoDir,_ -> None,st
     | Irr,(R|W) | Dir W,W | Dir R,R when do_kvm ->
-        label_pte_fault dir pte_val,unset_check_fault st
+        label_pte_fault dir pte_val n,unset_check_fault st
     | Dir R,W | Dir W,R when do_kvm ->
         None,st
     | _,R when do_store_only ->
         None,st
     | _,_ when do_memtag ->
-      Some ((Label.next_label "L"), tag <> Value.to_int (get_co st Tag)),st
+      make_fault_check n (tag <> Value.to_int (get_co st Tag)),st
     | _,_ when do_morello ->
-      Some ((Label.next_label "L"), false),st
+      make_fault_check n false,st
     | _,_ -> None,unset_check_fault st
 
   let implicit_pte_update st dir =
@@ -1002,7 +1045,7 @@ let check_cycle c =
           (* No need to add fault check in read modify write situation,
              as the label will be assigned in read *)
           let fault_update_without_rmw st =
-            if n.evt.rmw then None,st else CoSt.fault_update st W n.evt.tag in
+            if n.evt.rmw then None,st else CoSt.fault_update st W n in
           match n.evt.loc with
           | Data _ ->
             let bank = n.evt.bank in
@@ -1038,7 +1081,7 @@ let check_cycle c =
                  if it is followed by a depend address edge *)
               let check_fault =
                 if E.is_dp_addr n.prev.edge.E.edge then
-                  Some (Label.next_label "L", false)
+                  make_fault_check n false
                 else None in
               let st = CoSt.next_co st bank in
               let v = CoSt.get_co st bank in
@@ -1245,21 +1288,22 @@ let do_set_read_v init =
             else if n.evt.rmw then
               match n.edge.E.edge with
               | E.Rmw rmw when not (E.RMW.is_one_instruction rmw) ->
-                  let check_fault,st = CoSt.fault_update st R n.evt.tag in
-                  let write_check_fault,st = CoSt.fault_update st W n.evt.tag in
+                  let check_fault,st = CoSt.fault_update st R n in
+                  n.next.evt <- {n.next.evt with tag=n.evt.tag};
+                  let write_check_fault,st = CoSt.fault_update st W n.next in
                   n.next.evt <- {n.next.evt with check_fault=write_check_fault};
                   check_fault,st
-              | _ -> CoSt.fault_update st W n.evt.tag
-            else CoSt.fault_update st R n.evt.tag in
+              | _ -> CoSt.fault_update st W n
+            else CoSt.fault_update st R n in
           let check_value = match check_fault with
-            | Some (_,true) -> Some false
+            | Some {faults=true;_} -> Some false
             | _ -> check_value in
           n.evt <- { n.evt with check_fault; check_value };
           st
         | Pair ->
           let st = CoSt.implicit_pte_update st R in
           set_read_pair_v n cell check_value;
-          let check_fault, st = CoSt.fault_update st R n.evt.tag in
+          let check_fault, st = CoSt.fault_update st R n in
           n.evt <- { n.evt with check_fault };
           st
         | VecReg a ->
@@ -1268,7 +1312,7 @@ let do_set_read_v init =
           let v = E.SIMD.read a cell
                    |> E.SIMD.reduce
                    |> Value.from_int in
-          let check_fault, st = CoSt.fault_update st R n.evt.tag in
+          let check_fault, st = CoSt.fault_update st R n in
           n.evt <- { n.evt with v=v ; vecreg=[]; bank=Ord; check_value; check_fault ; };
           st
         | Tag ->
@@ -1279,7 +1323,7 @@ let do_set_read_v init =
              if it is followed by a depend address edge *)
           let check_fault =
             if E.is_dp_addr n.prev.edge.E.edge then
-              Some (Label.next_label "L", false)
+              make_fault_check n false
             else None in
           n.evt <- { n.evt with v = CoSt.get_co st bank; check_value; check_fault };
           st
@@ -1293,9 +1337,10 @@ let do_set_read_v init =
       | Some W ->
         if do_memtag && bank <> Tag then begin
           match n.evt.check_fault with
-          | Some (label,_) ->
+          | Some check ->
             let fault = n.evt.tag <> Value.to_int (CoSt.get_co st Tag) in
-            n.evt <- { n.evt with check_fault = Some (label,fault); }
+            let check_fault = update_fault_check n check fault in
+            n.evt <- { n.evt with check_fault=Some check_fault }
           | None -> ()
         end ;
         let st =
@@ -1354,6 +1399,18 @@ let do_set_read_v init =
         Some (n.evt.loc,vf))
   nss
 
+  let check_fault_annotations n =
+    let positive_fault n = match n.evt.check_fault with
+      | Some {faults=true;_} -> true
+      | Some {faults=false;_}|None -> false in
+    fold
+      (fun n () ->
+        if Value.need_fault_handler n.evt.atom &&
+           not (same_instruction_predicate positive_fault n) then
+          Warn.user_error
+            "Fault annotation requires a positive fault check.")
+      n ()
+
   (* find the next node with communication but
      there are all ordinary write nodes in between. *)
   let rec find_fault_com = function
@@ -1390,12 +1447,12 @@ let do_set_read_v init =
       iter_with_tail ( fun node tail ->
         match node.evt.check_fault with
           | None -> ()
-          | Some (_label, fault_bool) ->
+          | Some {faults;_} ->
             (* circulate `tail` back to `node_list` *)
             match find_fault_com (node :: tail @ node_list) with
             | Some n ->
               if n.evt.check_fault = None then
-                let check_fault = Some ((Label.next_label "L", fault_bool)) in
+                let check_fault = make_fault_check n faults in
                 n.evt <- { n.evt with check_fault }
             | None -> ()
         ) node_list
@@ -1455,6 +1512,7 @@ let finish n =
   end ;
 (* Set load values *)
   let vs = set_read_v by_loc initvals in
+  check_fault_annotations start_node ;
   propagate_fault by_loc;
 (* Set dependency values *)
   (if do_morello then set_dep_v by_loc) ;

@@ -38,6 +38,7 @@ module type Config = sig
   val variant : Variant_gen.t -> bool
   val cycleonly: bool
   val metadata : bool
+  val fault_handler : bool
   val same_loc : bool
 end
 
@@ -66,6 +67,7 @@ module Make (O:Config) (Comp:XXXCompile_gen.S) : Builder.S
     | _,_ -> init
 
   type typ = Typ of TypBase.t | Array of TypBase.t * int
+  type code = MiscParser.proc * A.pseudo list
 
   type test =
       {
@@ -74,7 +76,8 @@ module Make (O:Config) (Comp:XXXCompile_gen.S) : Builder.S
        info : Code.info ;
        edges : edge list ;
        init : A.init ;
-       prog : A.pseudo list list ;
+       prog : (code * code option) list ;
+       (** Main processes paired with their optional fault handlers. *)
        scopes : BellInfo.scopes option ;
        final : F.final ;
        env : typ A.LocMap.t ;
@@ -426,7 +429,8 @@ let max_set = IntSet.max_elt
               i,cs,f@fs
           | _ ->
               let i,cs,fs = build_observers (p+1) i x vss in
-              i,c::cs,f@fs
+              let obs_process = ((p,None,MiscParser.Main),c),None in
+              i,obs_process::cs,f@fs
         with NoObserver -> build_observers p i x vss
 
   (* `env_wide` is a lookup table for the widths of locations and `atoms` is a set of all atom *)
@@ -469,7 +473,7 @@ let max_set = IntSet.max_elt
         - `i` initial value, of type `init` (defined in archExtra_gen.ml).
           It remains unchanged in the default configuration.
           It is only updated via `call_build_observers`.
-        - `cs` pseudo code. It is empty in the default configuration.
+        - `cs` observer code. It is empty in the default configuration.
           It is only updated via `call_build_observers`.
         Element of `vxs` is `(x, vs)`.
         - `x` is the location represented by a string
@@ -717,6 +721,13 @@ let max_set = IntSet.max_elt
     let no_local_ptes = StringSet.of_list (List.map fst last_ptes) in
     if O.verbose > 1 then U.pp_coherence cos0 ;
     let loc_writes = U.comp_loc_writes n in
+    let count_fault_handlers ns =
+      List.fold_left
+        (fun count n ->
+          match n.C.evt.C.check_fault with
+          | Some {C.handler=true;_} -> count+1
+          | _ -> count)
+        0 ns in
     (* `do_rec` compile individual instructions *)
     let rec do_rec p i = function
       | [] -> List.rev i,[],(C.EventMap.empty,[]),[],A.LocMap.empty
@@ -737,11 +748,23 @@ let max_set = IntSet.max_elt
             | (Cycle|Observe),Local ->
               add_co_local_check no_local_ptes lsts n st p i c f in
           let i,c,st = Comp.postlude st p i c in
+          let handler_count = count_fault_handlers n in
+          let handler,f,st =
+            if handler_count > 0 then
+              match Comp.emit_fault_handler st p with
+              | Some (r,code,st) ->
+                Some ((p,None,MiscParser.FaultHandler),code),
+                F.add_final_v p r (IntSet.singleton handler_count) f,st
+              | None ->
+                Warn.user_error
+                  "Fault handlers are not supported by this architecture"
+            else None,f,st in
           let env_p = A.get_env st in
           let foks = gather_final_oks p st in
           let i,cs,(ms,fs),ios,env = do_rec (p+1) i ns in
           let io = U.io_of_thread n in
-          i,c::cs,
+          let main = (p,None,MiscParser.Main),c in
+          i,(main,handler)::cs,
           (C.union_map m ms,F.add_int_sets (f@fs) foks),
           io::ios,
           A.LocMap.union_std
@@ -833,15 +856,16 @@ let max_set = IntSet.max_elt
                (fun (pos_flts,neg_flts) n ->
                   let e = n.C.evt in
                   match e.C.check_fault,e.C.loc,e.C.bank with
-                  | Some (lbl, do_fault),Data x,(Ord|CapaTag|CapaSeal) ->
+                  | Some {C.label=lbl;faults=do_fault;handler},Data x,(Ord|CapaTag|CapaSeal) ->
                     let proc = n.C.evt.C.proc in
                     (* No location and label information if we are in `async` *)
                     let flt = if do_async then ((proc, None), None, None)
                       else ((proc, Some lbl), Some (F.S x), None) in
-                    (* Collect fault information based on `do_fault`,
-                       add into either `pos_flts` for checking `Fault(...)`
-                       or `neg_flts` for checking `~Fault(...)`. *)
-                    if do_fault then F.FaultAtomSet.add flt pos_flts,neg_flts
+                    (* Collect fault information based on `do_fault`. Omit
+                       handled positive faults; otherwise add `Fault(...)` to
+                       `pos_flts` or `~Fault(...)` to `neg_flts`. *)
+                    if do_fault && handler then pos_flts,neg_flts
+                    else if do_fault then F.FaultAtomSet.add flt pos_flts,neg_flts
                     else pos_flts,F.FaultAtomSet.add flt neg_flts
                   | _ -> (pos_flts,neg_flts)) (F.FaultAtomSet.empty,F.FaultAtomSet.empty) ns
            else (* no fault-related flag *)
@@ -960,9 +984,8 @@ let max_set = IntSet.max_elt
   end)
 
   let add_proc_to_prog prog =
-    List.mapi ( fun index code ->
-      ((index, None, MiscParser.Main),code)
-    ) prog
+    let mains,handlers = List.split prog in
+    mains @ List.filter_map Fun.id handlers
 
   let dump_test_channel_full chan t =
     let core_dumper_name = {
@@ -1005,12 +1028,12 @@ let max_set = IntSet.max_elt
       | A.Label (lab,i) -> num_ins p (StringMap.add lab p m) i
       | _ -> m in
 
-    let num_code p  = List.fold_left (num_ins p) in
+    let num_code m ((p,_,_),code) = List.fold_left (num_ins p) m code in
 
-    let rec num_rec p m = function
+    let rec num_rec m = function
       | [] -> m
-      | c::cs -> num_rec (p+1) (num_code p m c) cs in
-    num_rec 0 StringMap.empty
+      | (main,_)::cs -> num_rec (num_code m main) cs in
+    num_rec StringMap.empty
 
 let tr_labs m init =
   List.map

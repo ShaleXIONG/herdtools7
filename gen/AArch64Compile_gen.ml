@@ -1760,7 +1760,7 @@ module Make(Cfg:Config) : XXXCompile_gen.S =
 
     let add_label_to_last_instructions e cs =
       match e.C.check_fault with
-      | Some (label_name, _) ->
+      | Some {C.label=label_name;_} ->
         let rec do_rec = function
           | [] -> Warn.fatal "No instruction to label for fault"
           | [instr] -> [Label(label_name, instr)]
@@ -1787,7 +1787,7 @@ module Make(Cfg:Config) : XXXCompile_gen.S =
     let add_label_to_exclusive_load_and_store er ew cs =
       let add_label e instr =
         match e.C.check_fault with
-        | Some (label_name, _) -> Label(label_name, instr)
+        | Some {C.label=label_name;_} -> Label(label_name, instr)
         | None -> instr in
       let rec do_rec = function
         | [] -> []
