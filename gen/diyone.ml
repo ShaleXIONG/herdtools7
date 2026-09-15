@@ -229,6 +229,7 @@ let () =
     let stdout = if !Config.cycleonly then true else !Config.stdout
     let cycleonly = !Config.cycleonly
     let metadata = !Config.metadata
+    let fault_handler = !Config.fault_handler
 (* Specific *)
     let norm = !Config.norm
     let cpp = cpp

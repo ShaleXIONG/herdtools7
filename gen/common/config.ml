@@ -56,6 +56,7 @@ let stdout = ref false
 let cycleonly = ref false
 let unfold_only = ref false
 let metadata = ref true
+let fault_handler = ref false
 let numeric = ref true
 let varatom = ref ([] : string list)
 let use_eieio = ref true
@@ -252,6 +253,7 @@ let common_specs () =
   ("-nooptcoherence", Arg.Clear optcoherence, "do not optimize coherence (default)")::
   ("-metadata",Arg.Bool (fun b -> metadata := b),
    sprintf "output metadata, default %b" !metadata)::
+  ("-fault-handler",Arg.Set fault_handler,"generate fault handlers")::
   ("-info",Arg.String add_info_line,"add metadata to generated test(s)")::
   ("-moreedges", Arg.Bool (fun b -> moreedges := b),
    Printf.sprintf
