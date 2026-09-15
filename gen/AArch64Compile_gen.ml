@@ -3001,6 +3001,22 @@ module Make(Cfg:Config) : XXXCompile_gen.S =
         (fun st p init loc r ->
           STR.emit_store_reg st p init loc r false C.evt_null)
 
+    let emit_fault_handler st p =
+      let r,st = next_reg st in
+      let r_elr,st = next_reg st in
+      let st = A.add_type (A.of_reg p r) TypBase.Int st in
+      let st =
+        A.add_type
+          (A.of_reg p r_elr)
+          (TypBase.Std (TypBase.Unsigned,MachSize.Quad)) st in
+      let code =
+        [Instruction (incr r);
+         Instruction (I_MRS (r_elr,ELR_EL1));
+         Instruction (addi_64 r_elr r_elr 4);
+         Instruction (I_MSR (ELR_EL1,r_elr));
+         Instruction I_ERET] in
+      Some (r,code,st)
+
 
     let get_strx_result k = function
       | I_STXR (_,_,r,_,_)|I_STXRBH (_,_,r,_,_)

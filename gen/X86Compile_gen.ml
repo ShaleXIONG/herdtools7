@@ -183,6 +183,8 @@ struct
     mk_postlude
       (fun st _p init loc r -> init,[Instruction (emit_store_reg loc r)],st)
 
+  let emit_fault_handler _ _ = None
+
   let get_xstore_results _ = []
 
   include NoInfo

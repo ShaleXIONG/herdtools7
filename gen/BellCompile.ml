@@ -302,6 +302,7 @@ let emit_rmw _ = assert false
 (* Postlude for adding exit label *)
 
     let postlude = mk_postlude emit_store_reg
+    let emit_fault_handler _ _ = None
 
     let get_xstore_results _ = []
 

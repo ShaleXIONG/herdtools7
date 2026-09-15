@@ -76,6 +76,9 @@ module type S = sig
   val postlude : A.st -> Code.proc -> A.init -> A.pseudo list ->
     A.init * A.pseudo list * A.st
 
+  val emit_fault_handler :
+    A.st -> Code.proc -> (A.reg * A.pseudo list * A.st) option
+
   val get_xstore_results : A.pseudo list -> (A.reg * int) list
 
 (* Info from events *)

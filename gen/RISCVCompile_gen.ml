@@ -571,6 +571,8 @@ module Make(Cfg:Config) : XXXCompile_gen.S  =
        (fun st p init loc r ->
          STORE.emit_store_reg AV.Rlx st p init loc r)
 
+    let emit_fault_handler _ _ = None
+
     let get_strx_result k = function
       | StoreConditional (_,_,r,_,_)  -> r::k
       | _ -> k

@@ -413,6 +413,7 @@ module Make(Cfg:Config) : XXXCompile_gen.S =
 (* Postlude *)
 
     let postlude = mk_postlude emit_store_reg
+    let emit_fault_handler _ _ = None
 
     let get_xstore_results _ = []
 

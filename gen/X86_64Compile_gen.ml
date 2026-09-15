@@ -451,6 +451,8 @@ module Make(Cfg:CompileCommon.Config) : XXXCompile_gen.S =
         (fun st p init loc r ->
           emit_store_mixed_reg Word 0 st p init loc r)
 
+    let emit_fault_handler _ _ = None
+
     let get_xstore_results _ = []
 
 (* Info computation, compute extra alignement constraints *)
