@@ -910,7 +910,9 @@ module Make
       let v2tgt =
         let open Constant in
         function
-        | M.A.V.Val (Symbolic (Virtual {name=Symbol.Label (_, lbl); _})) -> Some (B.Lbl lbl)
+        | M.A.V.Val
+            (Symbolic (Virtual {name=Symbol.Label (_, lbl); offset; _})) ->
+          Some (if offset = 0 then B.Lbl lbl else B.LblOffset (lbl,offset))
         | M.A.V.Val (Concrete i) -> Some (B.Addr (M.A.V.Cst.Scalar.to_int i))
         | _ -> None
 
