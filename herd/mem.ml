@@ -566,6 +566,7 @@ module Make(C:Config) (S:Sem.Semantics) : S with module S = S	=
 
       let tgt2lbl = function
         | B.Lbl lbl -> lbl
+        | B.LblOffset (lbl,_) -> lbl
         | B.Addr addr -> get_label None addr in
 
     let fetch_addr check_back seen proc_jmp addr_jmp lbl addr =
@@ -592,6 +593,12 @@ module Make(C:Config) (S:Sem.Semantics) : S with module S = S	=
            begin try
              let addr = Label.Map.find  lbl prog in
              fetch_addr check_back seen proc_jmp addr_jmp (Some lbl) addr
+           with Not_found -> segfault lbl
+           end
+        | B.LblOffset (lbl,offset) ->
+           begin try
+             let addr = Label.Map.find lbl prog + offset in
+             fetch_addr check_back seen proc_jmp addr_jmp None addr
            with Not_found -> segfault lbl
            end
         | B.Addr addr ->
