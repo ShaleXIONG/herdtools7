@@ -25,7 +25,7 @@ module type S = sig
   type 'a monad
 
 (* Branch information, result of our instruction semantics *)
-  type tgt = Lbl of lbl | Addr of int
+  type tgt = Lbl of lbl | LblOffset of lbl * int | Addr of int
 
   type bds = (reg * v) list
   type t =
@@ -71,7 +71,7 @@ module Make(M:Monad.S) = struct
   type v = M.A.V.v
   type 'a monad = 'a M.t
 
-  type tgt = Lbl of lbl | Addr of int
+  type tgt = Lbl of lbl | LblOffset of lbl * int | Addr of int
   type bds = (reg * v) list
 
   type t =
