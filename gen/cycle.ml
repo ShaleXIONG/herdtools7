@@ -1328,8 +1328,11 @@ let do_set_read_v init =
         match tail with
         | [] -> assert false
         | next::_ ->
-          if next.evt.bank = Ord then Some next
-          else None
+          let is_write = match next.evt.dir,next.edge.E.edge with
+            | Some W,_ -> true
+            | Some R,E.Rmw rmw -> E.RMW.is_one_instruction rmw
+            | _ -> false in
+          if next.evt.bank = Ord && (do_kvm || is_write) then Some next else None
       else find_fault_com tail
 
   let propagate_fault by_loc =
