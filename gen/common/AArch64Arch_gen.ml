@@ -287,6 +287,7 @@ module StructuredAtom : sig
 
   type t =
     | OrdinaryAccess of access_order
+    | FaultAccess of access_order
     | MixedSizeAccess of access_order * MachMixed.t
     | ArrayCellAccess of access_order * int
     | MorelloAccess of access_order
@@ -339,6 +340,7 @@ end = struct
   type t =
     (* Ordinary integer/general-purpose data access. *)
     | OrdinaryAccess of access_order
+    | FaultAccess of access_order
     (* Mixed-size slice of an ordinary access, as in `b0`, `h0`, or `w0`. *)
     | MixedSizeAccess of access_order * MachMixed.t
     (* Natural-sized scalar access to a zero-based cell projection. *)
@@ -400,9 +402,10 @@ end = struct
     | PairAccess _ -> 10
     | InstrAccess -> 11
     | ArrayCellAccess _ -> 12
+    | FaultAccess _ -> 13
 
   let access_order = function
-    | OrdinaryAccess o|MixedSizeAccess (o,_)|MorelloAccess o -> Some o
+    | OrdinaryAccess o|FaultAccess o|MixedSizeAccess (o,_)|MorelloAccess o -> Some o
     | ArrayCellAccess (o,_) -> Some o
     | PteAccess (Read o|ReadHA o) -> Some (o :> access_order)
     | PteAccess (Set (o,_)) -> Some (o :> access_order)
@@ -414,6 +417,7 @@ end = struct
     match Misc.int_compare (access_rank a1) (access_rank a2) with
     | 0 -> begin match a1,a2 with
         | OrdinaryAccess o1,OrdinaryAccess o2
+        | FaultAccess o1,FaultAccess o2
         | MorelloAccess o1,MorelloAccess o2 -> compare_access_order o1 o2
         | MixedSizeAccess (o1,m1),MixedSizeAccess (o2,m2) ->
             Misc.pair_compare compare_access_order compare_mixed (o1,m1) (o2,m2)
@@ -454,6 +458,7 @@ end = struct
 
   let pp = function
     | OrdinaryAccess access_order -> pp_access_order "P" access_order
+    | FaultAccess access_order -> sprintf "Fault%s" (pp_access_order "" access_order)
     | Atomic (rw,AtomicOrdinary) -> sprintf "X%s" (pp_atom_rw rw)
     | MixedSizeAccess (`Plain,m) -> pp_mixed m
     | MixedSizeAccess (access_order,m) ->
@@ -482,6 +487,9 @@ end = struct
     | InstrAccess -> "I"
 
   let pp_atom_separate = function
+    | FaultAccess access_order ->
+        "Fault" ::
+        (match pp_access_order "" access_order with "" -> [] | order -> [order])
     | PteAccess (Set (access_order,fields)) ->
         WPTESet.elements fields
         |> List.map
@@ -566,17 +574,18 @@ end = struct
     | NeonAccess SIMD.NeAcqPc,W
     | NeonAccess SIMD.NeRel,R -> false
     | (OrdinaryAccess (`Acquire|`AcquirePC)
+      |FaultAccess (`Acquire|`AcquirePC)
       |MixedSizeAccess ((`Acquire|`AcquirePC),_)
       |ArrayCellAccess ((`Acquire|`AcquirePC),_)
       |MorelloAccess (`Acquire|`AcquirePC)),R -> true
-    | (OrdinaryAccess `Release|MixedSizeAccess (`Release,_)
+    | (OrdinaryAccess `Release|FaultAccess `Release|MixedSizeAccess (`Release,_)
       |ArrayCellAccess (`Release,_)
       |MorelloAccess `Release),W -> true
     | PteAccess (Read _|ReadHA _),R -> true
     | PteAccess (Set (`Plain,pte)),R when WPTESet.mem WPTE.HA pte -> true
     | PteAccess (Set _),W -> true
     | InstrAccess,R -> true
-    | (OrdinaryAccess `Plain|MixedSizeAccess (`Plain,_)
+    | (OrdinaryAccess `Plain|FaultAccess `Plain|MixedSizeAccess (`Plain,_)
       |ArrayCellAccess (`Plain,_)
       |MorelloAccess `Plain),(R|W)
     | Atomic _,(R|W)
@@ -590,19 +599,22 @@ end = struct
   let applies_rmw rmw ar aw =
     let ok_rw ar aw = match ar,aw with
       | (None|Some (OrdinaryAccess (`Plain|`Acquire))
+        |Some (FaultAccess (`Plain|`Acquire))
         |Some (MixedSizeAccess ((`Plain|`Acquire),_))
         |Some (ArrayCellAccess ((`Plain|`Acquire),_))
         |Some (MorelloAccess (`Plain|`Acquire))),
         (None|Some (OrdinaryAccess (`Plain|`Release))
+        |Some (FaultAccess (`Plain|`Release))
         |Some (MixedSizeAccess ((`Plain|`Release),_))
         |Some (ArrayCellAccess ((`Plain|`Release),_))
         |Some (MorelloAccess (`Plain|`Release))) -> true
       | _,_ -> false in
     let ok_w ar aw = match ar,aw with
-      | (None|Some (OrdinaryAccess `Plain)
+      | (None|Some (OrdinaryAccess `Plain)|Some (FaultAccess `Plain)
         |Some (MixedSizeAccess (`Plain,_))|Some (ArrayCellAccess (`Plain,_))
         |Some (MorelloAccess `Plain)),
         (None|Some (OrdinaryAccess (`Plain|`Release))
+        |Some (FaultAccess (`Plain|`Release))
         |Some (MixedSizeAccess ((`Plain|`Release),_))
         |Some (ArrayCellAccess ((`Plain|`Release),_))
         |Some (MorelloAccess (`Plain|`Release))) -> true
@@ -630,7 +642,7 @@ end = struct
     | NeonAccess n -> Code.VecReg n
     | PairAccess _ -> Code.Pair
     | InstrAccess -> Code.Instr
-    | (OrdinaryAccess _|MixedSizeAccess _|ArrayCellAccess _
+    | (OrdinaryAccess _|FaultAccess _|MixedSizeAccess _|ArrayCellAccess _
       |MorelloAccess _|Atomic _) -> Code.Ord
 
   let merge a1 a2 =
@@ -647,6 +659,10 @@ end = struct
     | OrdinaryAccess `Plain,a
     | a,OrdinaryAccess `Plain ->
         Some a
+    | FaultAccess o1,OrdinaryAccess o2
+    | OrdinaryAccess o2,FaultAccess o1
+    | FaultAccess o1,FaultAccess o2 ->
+        Option.map (fun order -> FaultAccess order) (merge_order o1 o2)
     | MixedSizeAccess (o1,m),OrdinaryAccess o2
     | OrdinaryAccess o2,MixedSizeAccess (o1,m) -> begin
           match merge_order o1 o2 with
@@ -730,6 +746,7 @@ end = struct
         (f (make `Acquire)
           (f (make `AcquirePC) (f (make `Release) r))) in
     let r = add_orders (fun o -> OrdinaryAccess o) r in
+    let r = add_orders (fun o -> FaultAccess o) r in
     let r = fold_atom_rw (fun rw -> f (Atomic (rw,AtomicOrdinary))) r in
     let r = if do_mixed then
       fold_mixed
@@ -920,6 +937,10 @@ module Value = struct
       | Some (StructuredAtom.PteAccess pte)
         when affect_pte_field DB pte -> Dir W
       | _ -> NoDir
+
+    let need_fault_handler = function
+      | Some (StructuredAtom.FaultAccess _) -> true
+      | _ -> false
 
     let implicitly_set_pteval dir machine_feature p =
       let open WPTE in

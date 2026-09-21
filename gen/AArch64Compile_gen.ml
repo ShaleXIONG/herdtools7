@@ -1539,6 +1539,7 @@ module Make(Cfg:Config) : XXXCompile_gen.S =
 
     let tr_none = function
       | None -> plain
+      | Some (FaultAccess order) -> OrdinaryAccess order
       | Some atom -> atom
 
 

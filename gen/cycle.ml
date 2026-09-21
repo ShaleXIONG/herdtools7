@@ -875,6 +875,9 @@ let by_loc xvs =
 let check_cycle c =
   fold
     (fun n () ->
+      if O.variant Variant_gen.Async && Value.need_fault_handler n.evt.atom then
+        Warn.user_error
+          "Fault annotation cannot be used with asynchronous faults." ;
       if E.is_dp_data n.edge.E.edge && n.next.evt.dir = Some R &&
          not n.next.evt.rmw then
         Warn.fatal "Data dependency to a read must be followed by an RMW")
