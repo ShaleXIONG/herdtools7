@@ -692,8 +692,20 @@ let max_set = IntSet.max_elt
 
   let do_memtag = O.variant Variant_gen.MemTag
   let do_async = O.variant Variant_gen.Async
+  let do_asym = O.variant Variant_gen.Asym
   let do_morello = O.variant Variant_gen.Morello
   let do_kvm = Variant_gen.is_kvm O.variant
+
+  let is_async_fault n =
+    let e = n.C.evt in
+    let is_one_instruction_rmw =
+      match n.C.edge.E.edge with
+      | E.Rmw rmw -> E.RMW.is_one_instruction rmw
+      | _ -> false in
+    do_async
+    (* A single-instruction RMW carries its fault on the read event, although
+       herd treats its tag check as a write. *)
+    || (do_asym && (e.C.dir = Some W || is_one_instruction_rmw))
 
   let compile_cycle ok initvals n =
     if O.verbose > 0 then begin
@@ -725,7 +737,7 @@ let max_set = IntSet.max_elt
       List.fold_left
         (fun count n ->
           match n.C.evt.C.check_fault with
-          | Some {C.handler=true;_} -> count+1
+          | Some {C.handler=true;_} when not (is_async_fault n) -> count+1
           | _ -> count)
         0 ns in
     (* `do_rec` compile individual instructions *)
@@ -858,13 +870,14 @@ let max_set = IntSet.max_elt
                   match e.C.check_fault,e.C.loc,e.C.bank with
                   | Some {C.label=lbl;faults=do_fault;handler},Data x,(Ord|CapaTag|CapaSeal) ->
                     let proc = n.C.evt.C.proc in
-                    (* No location and label information if we are in `async` *)
-                    let flt = if do_async then ((proc, None), None, None)
+                    (* Asynchronous faults have no location or label. *)
+                    let async = is_async_fault n in
+                    let flt = if async then ((proc, None), None, None)
                       else ((proc, Some lbl), Some (F.S x), None) in
                     (* Collect fault information based on `do_fault`. Omit
                        handled positive faults; otherwise add `Fault(...)` to
                        `pos_flts` or `~Fault(...)` to `neg_flts`. *)
-                    if do_fault && handler then pos_flts,neg_flts
+                    if do_fault && handler && not async then pos_flts,neg_flts
                     else if do_fault then F.FaultAtomSet.add flt pos_flts,neg_flts
                     else pos_flts,F.FaultAtomSet.add flt neg_flts
                   | _ -> (pos_flts,neg_flts)) (F.FaultAtomSet.empty,F.FaultAtomSet.empty) ns
@@ -1061,7 +1074,7 @@ let fault_handler_info c =
     C.fold
       (fun n labels ->
         match n.C.evt.C.check_fault with
-        | Some {C.label;handler=true;_} ->
+        | Some {C.label;handler=true;_} when not (is_async_fault n) ->
             Label.Set.add label labels
         | _ -> labels)
       c Label.Set.empty in
