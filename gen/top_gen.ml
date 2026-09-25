@@ -890,17 +890,17 @@ let max_set = IntSet.max_elt
                (fun (pos_flts,neg_flts) n ->
                   let e = n.C.evt in
                   match e.C.check_fault,e.C.loc,e.C.bank with
-                  | Some (lbl, do_fault),Data x,(Ord|CapaTag|CapaSeal) ->
+                  | Some C.{label=lbl;state},Data x,(Ord|CapaTag|CapaSeal) ->
                     let proc = n.C.evt.C.proc in
                     (* Asynchronous faults have no location or label. *)
                     let async = is_async_fault n in
                     let flt = if async then ((proc, None), None, None)
                       else ((proc, Some lbl), Some (F.S x), None) in
-                    (* Collect fault information based on `do_fault`,
-                       add into either `pos_flts` for checking `Fault(...)`
-                       or `neg_flts` for checking `~Fault(...)`. *)
-                    if do_fault then F.FaultAtomSet.add flt pos_flts,neg_flts
-                    else pos_flts,F.FaultAtomSet.add flt neg_flts
+                    begin match state with
+                    | C.Pos -> F.FaultAtomSet.add flt pos_flts,neg_flts
+                    | C.Neg -> pos_flts,F.FaultAtomSet.add flt neg_flts
+                    | C.Handler -> pos_flts,neg_flts
+                    end
                   | _ -> (pos_flts,neg_flts)) (F.FaultAtomSet.empty,F.FaultAtomSet.empty) ns
            else (* no fault-related flag *)
              F.FaultAtomSet.empty,F.FaultAtomSet.empty
