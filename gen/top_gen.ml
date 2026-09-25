@@ -852,18 +852,21 @@ let opt_coherence = function
                (fun (positive_faults,negative_faults) node ->
                   let event = node.C.evt in
                   match event.C.check_fault,event.C.loc,event.C.bank with
-                  | Some (label,do_fault),Data loc,(Ord|CapaTag|CapaSeal) ->
+                  | Some C.{label;state},Data loc,(Ord|CapaTag|CapaSeal) ->
                     let proc_num = event.C.proc in
                     (* Asynchronous faults have no location or label. *)
                     let async = is_async_fault node in
                     let fault =
                       if async then ((proc_num,None),None,None)
                       else ((proc_num,Some label),Some (F.S loc),None) in
-                    if do_fault then
-                      F.FaultAtomSet.add fault positive_faults,negative_faults
-                    else
-                      positive_faults,
-                      F.FaultAtomSet.add fault negative_faults
+                    begin match state with
+                    | C.Pos ->
+                        F.FaultAtomSet.add fault positive_faults,negative_faults
+                    | C.Neg ->
+                        positive_faults,
+                        F.FaultAtomSet.add fault negative_faults
+                    | C.Handler -> positive_faults,negative_faults
+                    end
                   | _ -> positive_faults,negative_faults)
                (F.FaultAtomSet.empty,F.FaultAtomSet.empty) nodes
            else (* no fault-related flag *)
