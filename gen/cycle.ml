@@ -26,6 +26,13 @@ module type S = sig
   module SIMD : Simd.S
   module RMW : Rmw.S with type atom = atom
 
+  type fault_state = Neg | Pos | Handler
+
+  type fault_check = {
+    label : Label.t;
+    state : fault_state;
+  }
+
   (* TODO can be parametric by dir *)
   type event =
       { loc : loc ; ord : int;
@@ -48,7 +55,7 @@ module type S = sig
         idx : int ;
         (* If need to check this operation can fault.
            Label the instruction with `Label.t`. *)
-        check_fault : (Label.t * bool) option;
+        check_fault : fault_check option;
         (* If the effect of this event should be check in the postcondition.
            E.g., if the value changes since last time,
            therefore, any read event should lead to a postcondition
@@ -169,6 +176,18 @@ module Make (O:Config) (E:Edge.S) :
   module Value = E.Value
   module RMW = E.RMW
 
+  type fault_state = Neg | Pos | Handler
+
+  type fault_check = {
+    label : Label.t;
+    state : fault_state;
+  }
+
+  let fault_state_of_bool = function true -> Pos | false -> Neg
+
+  let make_fault faults =
+    {label=Label.next_label "L"; state=fault_state_of_bool faults}
+
   type event =
       { loc : loc ; ord : int; tag : int;
         ctag : int; cseal : int; dep : int;
@@ -182,7 +201,7 @@ module Make (O:Config) (E:Edge.S) :
         tcell : Value.v array ; (* value of tag cell at node exit *)
         bank : SIMD.atom Code.bank ;
         idx : int ;
-        check_fault : (Label.t * bool) option;
+        check_fault : fault_check option;
         check_value : bool option }
 
   let pte_default = Value.default_pte "*"
@@ -266,7 +285,11 @@ module Make (O:Config) (E:Edge.S) :
       ( if e.rmw then "rmw" else "" )
       ( match debug_vec e.cell with | "" -> "" | s -> "cell=[" ^ s ^"] ")
       (debug_val e.v) (debug_tag e) (debug_morello e) (debug_vector e)
-      ( match e.check_fault with | Some (n,b) -> sprintf "%s:%b" n b | None -> "none" )
+      (match e.check_fault with
+       | Some {label;state} ->
+           sprintf "%s:%s" label
+             (match state with Neg -> "neg" | Pos -> "pos" | Handler -> "handler")
+       | None -> "none")
       ( match e.check_value with | Some b -> sprintf "%b" b | None -> "none" )
 
   let debug_edge = E.pp_edge
@@ -606,7 +629,7 @@ module CoSt = struct
 
   (* Check if `pte_val` might fault *)
   let label_pte_fault dir pte_val =
-    Some ( (Label.next_label "L"), (Value.can_fault dir pte_val) )
+    Some (make_fault (Value.can_fault dir pte_val))
 
   (* Helper function returns a fresh label and a boolean for if it should fault,
      if a fault check is needed. Otherwise return `None`. *)
@@ -627,9 +650,9 @@ module CoSt = struct
     | _,R when do_store_only ->
         None,st
     | _,_ when do_memtag ->
-      Some ((Label.next_label "L"), tag <> Value.to_int (get_co st Tag)),st
+      Some (make_fault (tag <> Value.to_int (get_co st Tag))),st
     | _,_ when do_morello ->
-      Some ((Label.next_label "L"), false),st
+      Some (make_fault false),st
     | _,_ -> None,unset_check_fault st
 
   let implicit_pte_update st dir =
@@ -1185,7 +1208,7 @@ let check_cycle c =
            if it is followed by a depend address edge *)
         let check_fault =
           if E.is_dp_addr n.prev.edge.E.edge then
-            Some (Label.next_label "L", false)
+            Some (make_fault false)
           else None in
         let st = CoSt.next_co st bank in
         let v = CoSt.get_co st bank in
@@ -1263,7 +1286,7 @@ let check_cycle c =
             | _ -> CoSt.fault_update st W n.evt.tag
           else CoSt.fault_update st R n.evt.tag in
         let check_value = match check_fault with
-          | Some (_,true) -> Some false
+          | Some {state=Pos;_} -> Some false
           | _ -> check_value in
         n.evt <- { n.evt with check_fault; check_value };
         (next_x_ok, st)
@@ -1290,7 +1313,7 @@ let check_cycle c =
            if it is followed by a depend address edge *)
         let check_fault =
           if E.is_dp_addr n.prev.edge.E.edge then
-            Some (Label.next_label "L", false)
+            Some (make_fault false)
           else None in
         n.evt <- { n.evt with v = CoSt.get_co st bank; check_value; check_fault };
         (next_x_ok, st)
@@ -1413,6 +1436,18 @@ let set_dep_v nss =
           if next.evt.bank = Ord && (do_kvm || is_write) then Some next else None
       else find_fault_com tail
 
+  let label_exception_faults n =
+    let make_handler n =
+      let check_fault = match n.evt.check_fault with
+        | Some check -> Some {check with state=Handler}
+        | None -> Some {label=Label.next_label "L"; state=Handler} in
+      n.evt <- {n.evt with check_fault} in
+    fold
+      (fun n () -> match n.edge.E.edge with
+        | E.Exception ExcEnter -> make_handler (find_non_pseudo n.next)
+        | _ -> ())
+      n ()
+
   let propagate_fault by_loc =
     let rec iter_with_tail f l =
       match l with
@@ -1432,12 +1467,12 @@ let set_dep_v nss =
       iter_with_tail ( fun node tail ->
         match node.evt.check_fault with
           | None -> ()
-          | Some (_label, fault_bool) ->
+          | Some {state;_} ->
             (* circulate `tail` back to `node_list` *)
             match find_fault_com (node :: tail @ node_list) with
             | Some n ->
               if n.evt.check_fault = None then
-                let check_fault = Some ((Label.next_label "L", fault_bool)) in
+                let check_fault = Some {label=Label.next_label "L"; state} in
                 n.evt <- { n.evt with check_fault }
             | None -> ()
         ) node_list
@@ -1495,6 +1530,7 @@ let finish n =
     debug_cycle stderr start_node
   end ;
   propagate_fault by_loc;
+  label_exception_faults start_node;
 (* Set dependency values *)
   (if do_morello then set_dep_v by_loc) ;
   if O.debug.Debug_gen.cycle then begin
