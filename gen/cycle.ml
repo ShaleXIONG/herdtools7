@@ -761,12 +761,15 @@ let remove_store n0 =
       m.evt <- { m.evt with dir=Some d; atom=a; rmw=rmw}
     end else
     begin
-      let p = find_non_pseudo_prev m.prev in
-      match p.edge.E.edge with
-      | (E.Communication (Rf,Ext) | E.Communication (Fr,Ext)) ->
-        Warn.fatal "Insert pseudo edge %s appears after external communication edge %s"
-        (E.pp_edge m.edge) (E.pp_edge p.edge)
-      | _ -> ()
+      match m.edge.E.edge with
+      | E.Exception _ -> ()
+      | _ ->
+          let p = find_non_pseudo_prev m.prev in
+          match p.edge.E.edge with
+          | (E.Communication (Rf,Ext) | E.Communication (Fr,Ext)) ->
+            Warn.fatal "Insert pseudo edge %s appears after external communication edge %s"
+              (E.pp_edge m.edge) (E.pp_edge p.edge)
+          | _ -> ()
     end ;
     if m.next != n0 then do_rec m.next in
   do_rec n0 ;
@@ -873,6 +876,34 @@ let by_loc xvs =
   |> group
 
 let check_cycle c =
+  let check_exception_edges c =
+    let get_exception_handler n = match n.edge.E.edge with
+      | E.Exception exception_handler -> Some exception_handler
+      | _ -> None in
+    let first_exc_enter =
+      try find_node
+        (fun n -> get_exception_handler n = Some ExcEnter)
+        c
+      with Not_found -> c in
+    let in_handler = fold
+      (fun n in_handler ->
+        let exception_handler = get_exception_handler n
+        and is_external_comm = E.is_ext n.edge in
+        match in_handler,exception_handler,is_external_comm with
+        | false,Some ExcEnter,_ -> true
+        | false,(Some Eret|Some EretNext),_ ->
+            Warn.user_error
+              "Exception-handler return without a preceding ExcEnter."
+        | true,Some ExcEnter,_ ->
+            Warn.user_error "Nested ExcEnter is not allowed."
+        | true,(Some Eret|Some EretNext),_ -> false
+        | true,None,true -> false
+        | (false,None,_)|(true,None,false) -> in_handler)
+      first_exc_enter false in
+    if in_handler then
+      Warn.user_error
+        "ExcEnter must end with Eret, EretNext, or a communication edge." in
+  check_exception_edges c ;
   fold
     (fun n () ->
       if E.is_dp_data n.edge.E.edge && n.next.evt.dir = Some R &&

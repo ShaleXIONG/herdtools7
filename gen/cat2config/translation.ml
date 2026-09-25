@@ -42,7 +42,7 @@ let get_ie edge =
   | Id | Po _ | Dp _ | Fenced _ | Rmw _ -> Int
   | Communication (_, ie) -> ie
   | Leave _ | Back _ | Hat -> Ext
-  | Insert _ | Store | Node _ -> Int
+  | Insert _ | Exception _ | Store | Node _ -> Int
 
 let set_ie ie (edge : E.tedge) =
   match edge with
@@ -53,7 +53,8 @@ let get_sd (edge : E.tedge) =
   match edge with
   | Po (sd, _, _) | Dp (_, sd, _) | Fenced (_, sd, _, _) -> sd
   | Leave _ | Back _ | Hat | Id | Communication _ | Rmw _ -> Same
-  | Insert _ | Store | Node _ -> raise (Invalid_argument "Unexpected edge kind")
+  | Insert _ | Exception _ | Store | Node _ ->
+      raise (Invalid_argument "Unexpected edge kind")
 
 let set_sd sd (edge : E.tedge) =
   match edge with

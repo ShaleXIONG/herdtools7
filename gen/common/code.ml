@@ -75,6 +75,8 @@ type sd = Same|Diff|UnspecLoc
 (* Direction of related events *)
 type extr = Dir of dir | Irr | NoDir
 
+type exception_handler = ExcEnter | Eret | EretNext
+
 let equal_ie ie1 ie2 = match ie1,ie2 with
   | Int,Int
   | Ext,Ext
@@ -138,6 +140,18 @@ let fold_extr wildcard f r = let r = if wildcard then (f Irr r) else r in f (Dir
 let fold_sd_extr wildcard f = fold_sd wildcard (fun sd -> fold_extr wildcard (fun e -> f sd e))
 let fold_sd_extr_extr wildcard f =
   fold_sd_extr wildcard (fun sd e1 -> fold_extr wildcard (fun e2 -> f sd e1 e2))
+
+let compare_exception_handler e1 e2 = match e1,e2 with
+  | ExcEnter,ExcEnter|Eret,Eret|EretNext,EretNext -> 0
+  | ExcEnter,(Eret|EretNext)|Eret,EretNext -> -1
+  | (Eret|EretNext),ExcEnter|EretNext,Eret -> 1
+
+let pp_exception_handler = function
+  | ExcEnter -> "ExcEnter"
+  | Eret -> "Eret"
+  | EretNext -> "EretNext"
+
+let fold_exception_handler f r = f ExcEnter (f Eret (f EretNext r))
 
 type check =
   | Default | Sc | Uni | Thin | Critical

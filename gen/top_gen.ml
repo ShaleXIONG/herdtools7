@@ -234,6 +234,8 @@ let get_fence n =
                    in cs@is)
                    fs is))
             chk loc_writes st p ro_prev init ns
+      | E.Exception _ ->
+          compile_proc pref chk loc_writes st p ro_prev init ns
       (* A single fence *)
       | E.Insert f ->
           let ro_prev,init,cs,st, n1 = match ro_prev with

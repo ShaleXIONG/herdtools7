@@ -54,6 +54,7 @@ module type S = sig
     | Communication of com * ie
     | Po of sd*extr*extr | Fenced of fence*sd*extr*extr
     | Dp of dp*sd*extr
+    | Exception of exception_handler
     | Leave of com (* Leave thread *)
     | Back  of com (* Return to thread *)
 (* Fake edges *)
@@ -236,6 +237,7 @@ and module RMW = A.RMW = struct
     | Communication of com * ie
     | Po of sd*extr*extr | Fenced of fence*sd*extr*extr
     | Dp of dp*sd*extr
+    | Exception of exception_handler
     | Leave of com
     | Back of com
     | Id
@@ -248,22 +250,22 @@ and module RMW = A.RMW = struct
 
   let is_id = function
     | Id -> true
-    | Store|Insert _|Hat|Rmw _|Communication _|Po (_, _, _)
+    | Store|Insert _|Hat|Rmw _|Communication _|Po (_, _, _)|Exception _
     | Fenced (_, _, _, _)|Dp (_, _, _)|Leave _|Back _|Node _ -> false
 
   let is_insert_store = function
-    | Store|Insert _ -> true
+    | Store|Insert _|Exception _ -> true
     | Id|Hat|Rmw _|Communication _|Po (_, _, _)
     | Fenced (_, _, _, _)|Dp (_, _, _)|Leave _|Back _|Node _ -> false
 
   let is_node = function
     | Node _ -> true
-    | Id|Hat|Rmw _|Communication _|Po (_, _, _)
+    | Id|Hat|Rmw _|Communication _|Po (_, _, _)|Exception _
     | Fenced (_, _, _, _)|Dp (_, _, _)|Leave _|Back _|Insert _
     | Store -> false
 
   let is_non_pseudo = function
-    | Store|Insert _ |Id|Node _-> false
+    | Store|Insert _|Id|Exception _|Node _ -> false
     | Hat|Rmw _|Communication _|Po (_, _, _)
     | Fenced (_, _, _, _)|Dp (_, _, _)|Leave _|Back _ -> true
 
@@ -312,6 +314,7 @@ and module RMW = A.RMW = struct
     | Dp (dp,UnspecLoc,Irr) -> sprintf "Dp%s" (F.pp_dp dp)
     | Dp (dp,sd,e) ->
       sprintf "Dp%s%s%s"(F.pp_dp dp) (pp_sd sd) (pp_extr e)
+    | Exception exception_handler -> pp_exception_handler exception_handler
     | Hat -> "Hat"
     | Rmw rmw-> RMW.pp_rmw compat rmw
     | Leave c -> sprintf "%sLeave" (pp_com c)
@@ -367,8 +370,7 @@ let pp_dp_default tag sd e = sprintf "%s%s%s" tag (pp_sd sd) (pp_extr e)
   | Rmw _  -> Dir W
   | Communication (c, _)
   | Leave c|Back c -> do_dir_tgt_com c
-  | Id -> NoDir
-  | Insert _ -> NoDir
+  | Id|Exception _|Insert _ -> NoDir
   | Store -> Dir W
   | Node d -> Dir d
 
@@ -378,14 +380,14 @@ let pp_dp_default tag sd e = sprintf "%s%s%s" tag (pp_sd sd) (pp_extr e)
   | Dp _|Hat|Rmw _ -> Dir R
   | Communication(c, _)
   | Leave c|Back c -> do_dir_src_com c
-  | Id -> NoDir
-  | Insert _ -> NoDir
+  | Id|Exception _|Insert _ -> NoDir
   | Store -> Dir W
   | Node d -> Dir d
 
   let do_loc_sd e = match e with
   | Po (sd,_,_) | Fenced (_,sd,_,_) | Dp (_,sd,_) -> sd
-  | Insert _|Store|Node _|Communication _|Hat|Rmw _|Id|Leave _|Back _ -> Same
+  | Insert _|Store|Node _|Communication _|Hat|Rmw _|Id|Exception _
+  | Leave _|Back _ -> Same
 
   let do_is_diff e = Code.is_diff_loc @@ do_loc_sd e
 
@@ -398,6 +400,9 @@ let fold_tedges f r =
   let r = fold_com (fun com r -> fold_ie wildcard (fun ie -> f (Communication (com,ie))) r) r in
   let r = RMW.fold_rmw wildcard (fun rmw -> f (Rmw rmw)) r in
   let r = fold_sd_extr_extr wildcard (fun sd e1 e2 r -> f (Po (sd,e1,e2)) r) r in
+  let r =
+    fold_exception_handler
+      (fun exception_handler r -> f (Exception exception_handler) r) r in
   let r = F.fold_all_fences (fun fe -> f (Insert fe)) r in
   let r = f Store r in
   let r =
@@ -438,6 +443,7 @@ let fold_tedges f r =
       Code.equal_extr e11 e21 && Code.equal_extr e12 e22
   | Dp (dp1,sd1,e1),Dp (dp2,sd2,e2) ->
       F.equal_dp dp1 dp2 && Code.equal_sd sd1 sd2 && Code.equal_extr e1 e2
+  | Exception x1,Exception x2 -> compare_exception_handler x1 x2 = 0
   | Leave c1,Leave c2
   | Back c1,Back c2 -> Code.equal_com c1 c2
   | Id,Id
@@ -446,7 +452,7 @@ let fold_tedges f r =
   | Insert f1,Insert f2 -> F.compare_fence f1 f2 = 0
   | Node d1,Node d2 -> Code.equal_extr (Dir d1) (Dir d2)
   | Rmw rmw1,Rmw rmw2 -> RMW.equal_rmw rmw1 rmw2
-  | (Communication _|Po _|Fenced _|Dp _|Leave _|Back _|Id
+  | (Communication _|Po _|Fenced _|Dp _|Exception _|Leave _|Back _|Id
     |Insert _|Store|Node _|Hat|Rmw _),_ -> false
 
   let equal_edge_atoms lhs rhs =
@@ -711,13 +717,13 @@ let fold_tedges f r =
   | Fenced(f,sd,src,_) -> Fenced(f,sd,src,Dir d)
   | Dp (dp,sd,_) -> Dp (dp,sd,Dir d)
   | Communication _ | Hat
-  | Insert _|Store|Id|Node _|Rmw _|Leave _|Back _-> e
+  | Insert _|Store|Id|Exception _|Node _|Rmw _|Leave _|Back _-> e
 
   and do_set_src d e = match e with
   | Po(sd,_,tgt) -> Po(sd,Dir d,tgt)
   | Fenced(f,sd,_,tgt) -> Fenced(f,sd,Dir d,tgt)
   | Communication _|Hat|Dp _
-  | Insert _|Store|Id|Node _|Rmw _|Leave _|Back _ -> e
+  | Insert _|Store|Id|Exception _|Node _|Rmw _|Leave _|Back _ -> e
 
   let set_tgt d e = { e with edge = do_set_tgt d e.edge ; }
   and set_src d e = { e with edge = do_set_src d e.edge ; }
@@ -726,7 +732,7 @@ let fold_tedges f r =
   and is_diff e = do_is_diff e.edge
 
   let get_ie e = match e.edge with
-  | Id |Po _|Dp _|Fenced _|Rmw _ -> Int
+  | Id |Po _|Dp _|Fenced _|Exception _|Rmw _ -> Int
   | Communication (_,ie) -> ie
   | Leave _|Back _|Hat -> Ext
   | Insert _|Store|Node _ -> Int
@@ -807,7 +813,7 @@ let fold_tedges f r =
 
   let do_expand_edge e f acc =
     match e.edge with
-    | Insert _|Store|Id|Node _
+    | Insert _|Store|Id|Exception _|Node _
     | Hat |Leave _|Back _
       -> f e acc
     | Communication (com,ie) ->
