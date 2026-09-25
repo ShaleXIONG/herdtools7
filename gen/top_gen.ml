@@ -212,6 +212,8 @@ let get_fence n =
                    fence_code@following_code)
                  fs following_code) in
           do_rec prefix check_init state previous_load init nodes
+      | E.Exception _ ->
+          do_rec prefix check_init state previous_load init nodes
       (* A single fence *)
       | E.Insert fence ->
           let loaded_reg,init,fence_code,state,n1 =

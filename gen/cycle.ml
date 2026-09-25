@@ -877,6 +877,7 @@ let check_cycle c =
             (E.pp_edge n.edge) (E.pp_edge p.edge) (E.pp_edge next.edge)
         | _ -> ()
         end
+      | E.Exception _ -> ()
       | E.Insert _ ->
         let p = find_non_pseudo_prev n.prev in
         begin match p.edge.E.edge with
@@ -890,6 +891,45 @@ let check_cycle c =
           Warn.fatal "Data dependency to a read must be followed by an RMW"
       | _ -> ())
     c ;
+  (* Check that ExcEnter and return edges form well-formed handler sequences,
+     with at most one exception handler per process. *)
+  let check_exception_edges c =
+    let get_exception_handler n = match n.edge.E.edge with
+      | E.Exception exception_handler -> Some exception_handler
+      | _ -> None in
+    let first_exc_enter =
+      try (find_node (fun n -> E.is_ext n.edge) c).next
+      with Not_found -> try find_node (fun n -> get_exception_handler n = Some ExcEnter) c
+      with Not_found -> c in
+    let in_handler,_ = fold
+      (fun n (in_handler,has_handler) ->
+        let exception_handler = get_exception_handler n
+        and is_external_comm = E.is_ext n.edge in
+        match in_handler,has_handler,exception_handler,is_external_comm with
+        | false,false,Some ExcEnter,_ -> true,true
+        | false,true,Some ExcEnter,_ ->
+            Warn.user_error
+              "Only one exception handler is allowed per process."
+        | false,_,(Some Eret|Some EretNext),_ ->
+            Warn.user_error
+              "Exception-handler return without a preceding ExcEnter."
+        | true,_,Some ExcEnter,_ ->
+            Warn.user_error "Nested ExcEnter is not allowed."
+        | true,_,Some EretNext,_ ->
+            let next = find_non_pseudo n.next in
+            if E.is_com next.edge then
+              Warn.user_error
+                "EretNext must be followed by an instruction in the same process." ;
+            false,true
+        | true,_,Some Eret,_ -> false,true
+        | _,_,None,true -> false,false
+        | false,_,None,false -> false,has_handler
+        | true,_,None,false -> true,has_handler)
+      first_exc_enter (false,false) in
+    if in_handler then
+      Warn.user_error
+        "ExcEnter must end with Eret, EretNext, or a communication edge." in
+  check_exception_edges c ;
   (* Collect all the rmw edges, organise by location
      and then check if all the rmw edges per locations are valid *)
   fold ( fun n lst ->
