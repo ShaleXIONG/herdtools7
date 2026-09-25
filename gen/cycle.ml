@@ -73,6 +73,9 @@ module type S = sig
       mutable next : node ;
       mutable prev : node ;
       mutable store : node ;
+      mutable exception_handlers : exception_handler list ;
+      (* Logical source of the outgoing edge after Eret. *)
+      mutable exception_source : node ;
     }
   val nil : node
   val str_node : node -> string
@@ -220,6 +223,9 @@ module Make (O:Config) (E:Edge.S) :
       mutable next : node ;
       mutable prev : node ;
       mutable store : node ;
+      mutable exception_handlers : exception_handler list ;
+      (* Logical source of the outgoing edge after Eret. *)
+      mutable exception_source : node ;
     }
 
   let debug_dir d = match d with
@@ -273,6 +279,8 @@ module Make (O:Config) (E:Edge.S) :
      next = nil ;
      prev = nil ;
      store = nil ;
+     exception_handlers = [] ;
+     exception_source = nil ;
     }
 
   let  debug_node chan n =
@@ -306,6 +314,8 @@ let do_alloc_node idx e =
    next = nil ;
    prev = nil ;
    store = nil ;
+   exception_handlers = [] ;
+   exception_source = nil ;
   }
 
 let alloc_node idx e =
@@ -403,6 +413,9 @@ let find_non_insert_store_prev m = find_edge_prev non_insert_store m
 let non_pseudo e = E.is_non_pseudo e.E.edge
 let find_non_pseudo m = find_edge non_pseudo m
 let find_non_pseudo_prev m = find_edge_prev non_pseudo m
+
+let edge_source n =
+  if n.exception_source == nil then n else n.exception_source
 
 
 (* generic scan *)
@@ -680,10 +693,17 @@ let rec next_dir m = match m.next.evt.dir with
 
 let patch_edges n =
   let rec do_rec m =
-    let e = match  m.evt.dir with
-    | None -> m.edge
+    let source,edge,set_source =
+      if m.exception_source == nil then m,m.edge,true
+      else
+        m.exception_source,
+        {m.edge with E.a1=m.exception_source.evt.atom},
+        E.dir_src m.edge = Irr in
+    let e = match source.evt.dir with
+    | None -> edge
     | Some d ->
-        E.set_src d (E.set_tgt (next_dir m) m.edge) in
+        let edge = E.set_tgt (next_dir m) edge in
+        if set_source then E.set_src d edge else edge in
     m.edge <- e ;
     if m.next != n then do_rec m.next in
   do_rec n
@@ -723,11 +743,56 @@ let remove_store n0 =
   do_rec n0 ;
   n0
 
+let remove_exception_edges n0 =
+  let get_exception_handler n = match n.edge.E.edge with
+    | E.Exception exception_handler -> Some exception_handler
+    | _ -> None in
+  let n0 =
+    try find_node (fun n -> get_exception_handler n = None) n0
+    with Not_found -> Warn.fatal "Cycle contains only exception edges" in
+  fold
+    (fun n () -> match get_exception_handler n with
+      | Some exception_handler ->
+        let annotated = find_non_pseudo n.next in
+        annotated.exception_handlers <-
+          annotated.exception_handlers @ [exception_handler] ;
+        n.prev.next <- n.next ;
+        n.next.prev <- n.prev
+      | None -> ())
+    n0 () ;
+  n0
+
+let set_exception_sources n0 =
+  (* Eret retries the faulting instruction, hence its following edge starts
+     from that instruction rather than from the last handler event. *)
+  let find_exc_enter n =
+    try Some (find_node_prev
+      (fun n -> match n.edge.E.edge with
+        | E.Exception ExcEnter -> true
+        | E.Exception (Eret|EretNext) -> raise Not_found
+        | _ when E.is_ext n.edge -> raise Not_found
+        | _ -> false)
+      n.prev)
+    with Not_found -> None in
+  iter
+    (fun n -> match n.edge.E.edge with
+      | E.Exception Eret ->
+          begin match find_exc_enter n with
+          | Some enter ->
+              let fault_site = find_non_pseudo enter.next
+              and outgoing = find_non_pseudo n.next in
+              outgoing.exception_source <- fault_site
+          | None -> ()
+          end
+      | _ -> ())
+    n0
+
  let set_dir n0 =
   iter
     (fun m ->
       if non_insert_store m.edge then begin
-        let cur_d = E.dir_src m.edge in
+        let cur_d =
+          if m.exception_source == nil then E.dir_src m.edge else Irr in
         let p = find_non_insert_store_prev m.prev in
 (*    eprintf "p=%a, m=%a\n" debug_node p debug_node m; *)
         let prev_d = E.dir_tgt p.edge in
@@ -745,13 +810,15 @@ let remove_store n0 =
         | (NoDir,_)|(_,NoDir) -> assert false in
         let atom =
           let a2 = p.edge.E.a2 and a1 = m.edge.E.a1 in
-          if E.compare_atomo a1 a2 = 0 then a1
+          if m.exception_source != nil then a2
           else
-            if a1 = None && E.is_ext p.edge then a2
-            else if a2 = None &&  E.is_ext m.edge then a1
-            else
-              Warn.fatal "Impossible atomicity %s %s"
-                (E.pp_edge p.edge) (E.pp_edge m.edge) in
+              if E.compare_atomo a1 a2 = 0 then a1
+              else
+                if a1 = None && E.is_ext p.edge then a2
+                else if a2 = None &&  E.is_ext m.edge then a1
+                else
+                  Warn.fatal "Impossible atomicity %s %s"
+                    (E.pp_edge p.edge) (E.pp_edge m.edge) in
         let rmw = is_rmw dir m in
         m.evt <- { m.evt with dir=Some dir; atom; rmw}
       end)
@@ -797,7 +864,7 @@ let set_diff_loc st n0 =
   let rec do_rec st p m =
     let loc,st =
       if same_loc p.edge then begin
-        p.evt.loc,st
+        (edge_source p).evt.loc,st
       end
     else
       let n1 = try
@@ -897,6 +964,14 @@ let check_cycle c =
     let get_exception_handler n = match n.edge.E.edge with
       | E.Exception exception_handler -> Some exception_handler
       | _ -> None in
+    iter
+      (fun n -> match n.exception_source != nil,E.dir_src n.edge with
+        | true,Dir d when n.exception_source.evt.dir <> Some d ->
+            Warn.fatal "Impossible direction %s[%s] %s[%s]"
+              (str_node n.exception_source) (pp_extr (Dir d))
+              (str_node n) (pp_extr (E.dir_src n.edge))
+        | true,(Irr|NoDir|Dir _)|false,_ -> ())
+      c ;
     let first_exc_enter =
       try (find_node (fun n -> E.is_ext n.edge) c).next
       with Not_found -> try find_node (fun n -> get_exception_handler n = Some ExcEnter) c
@@ -1480,12 +1555,14 @@ let resolve_edges = function
   | es ->
       let c = build_cycle es in
       let c = remove_store c in
+      set_exception_sources c ;
       set_dir c ;
       extract_edges c,c
 
 let make es =
   let es,c = resolve_edges es in
   let c,initvals = finish c in
+  let c = remove_exception_edges c in
   es,c,initvals
 
 (*************************)
