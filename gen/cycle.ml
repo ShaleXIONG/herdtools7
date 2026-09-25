@@ -70,6 +70,7 @@ module type S = sig
   type node = {
       mutable evt : event ;
       mutable edge : edge ;
+      mutable exception_handler : exception_handler option ;
       mutable next : node ;
       mutable prev : node ;
       mutable store : node ;
@@ -218,6 +219,7 @@ module Make (O:Config) (E:Edge.S) :
   type node = {
       mutable evt : event ;
       mutable edge : edge ; (* NB evt is the source of edge *)
+      mutable exception_handler : exception_handler option ;
       mutable next : node ;
       mutable prev : node ;
       mutable store : node ;
@@ -271,6 +273,7 @@ module Make (O:Config) (E:Edge.S) :
     {
      evt = evt_null ;
      edge = E.plain_edge (E.Po (Diff,Irr,Irr)) ;
+     exception_handler = None ;
      next = nil ;
      prev = nil ;
      store = nil ;
@@ -304,6 +307,7 @@ let do_alloc_node idx e =
   {
    evt = { evt_null with idx = idx ;} ;
    edge = e ;
+   exception_handler = None ;
    next = nil ;
    prev = nil ;
    store = nil ;
@@ -714,6 +718,31 @@ let remove_store n0 =
          prev.next <- next ;
          next.prev <- prev
       | _ -> ()
+    end ;
+    if m.next != n0 then do_rec m.next in
+  do_rec n0 ;
+  n0
+
+let remove_exception_edges n0 =
+  let get_exception_handler n = match n.edge.E.edge with
+    | E.Exception exception_handler -> Some exception_handler
+    | _ -> None in
+  let n0 =
+    try find_node (fun n -> get_exception_handler n = None) n0
+    with Not_found -> Warn.fatal "Cycle contains only exception edges" in
+  let rec do_rec m =
+    begin match get_exception_handler m with
+    | Some exception_handler ->
+        let annotated = find_non_pseudo m.next in
+        begin match annotated.exception_handler with
+        | None -> annotated.exception_handler <- Some exception_handler
+        | Some _ ->
+            Warn.user_error
+              "Multiple exception-handler annotations on one instruction."
+        end ;
+        m.prev.next <- m.next ;
+        m.next.prev <- m.prev
+    | None -> ()
     end ;
     if m.next != n0 then do_rec m.next in
   do_rec n0 ;
@@ -1550,6 +1579,7 @@ let resolve_edges = function
 let make es =
   let es,c = resolve_edges es in
   let c,initvals = finish c in
+  let c = remove_exception_edges c in
   es,c,initvals
 
 (*************************)

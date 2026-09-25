@@ -66,6 +66,7 @@ module Make (O:Config) (Comp:XXXCompile_gen.S) : Builder.S
     | _,_ -> init
 
   type typ = Typ of TypBase.t | Array of TypBase.t * int
+  type code = MiscParser.proc * A.pseudo list
 
   type test =
       {
@@ -74,7 +75,7 @@ module Make (O:Config) (Comp:XXXCompile_gen.S) : Builder.S
        info : Code.info ;
        edges : edge list ;
        init : A.init ;
-       prog : A.pseudo list list ;
+       prog : (code * code option) list ;
        scopes : BellInfo.scopes option ;
        final : F.final ;
        env : typ A.LocMap.t ;
@@ -115,6 +116,18 @@ module U = TopUtils.Make(O)(Comp)
   type prev_load =
     | No       (* Non-existent or irrelevant *)
     | Yes of E.dp * A.arch_reg * C.node
+
+  type compiled_code = {
+    main : A.pseudo list;
+    handler : A.pseudo list;
+    handler_reg : A.reg option;
+  }
+
+  let map_code in_handler f compiled =
+    if in_handler then {compiled with handler=f compiled.handler}
+    else {compiled with main=f compiled.main}
+
+  let add_code in_handler code = map_code in_handler (fun rest -> code@rest)
 
 (* Catch exchanges at the very last moment... *)
   let as_rmw n =
@@ -210,16 +223,21 @@ let get_fence n =
           f::fs,ns
       | _ -> [],all
 
-  (* - `ro_prev` if there is a previous load
+  (* Traverse `ns` from left to right, carrying compilation state forward,
+     and assemble code while unwinding the recursion.
+     - `pref` prefixes code accumulated from pseudo nodes
+     - `chk` indicates whether an initial value is needed
+     - `loc_writes` contains locations written by the cycle
      - `st` is the machine state
-     - `chk` if an initial is needed
-     - `p` procedure (number)
-     - `ro_prev` carried if the previous related load
-     - `init` the inital values
-     - `ns` input node list
-  *)
-  let rec compile_proc pref chk loc_writes st p ro_prev init ns = match ns with
-  | [] -> init,pref [],(C.EventMap.empty,[]),st
+     - `p` is the procedure number
+     - `in_handler` selects the main or fault-handler output
+     - `ro_prev` carries a related preceding load
+     - `init` contains the initial values
+     - `ns` contains the remaining nodes *)
+  let rec compile_proc pref chk loc_writes st p in_handler ro_prev init ns = match ns with
+  | [] ->
+      let compiled = {main=[]; handler=[]; handler_reg=None} in
+      init,map_code in_handler pref compiled,(C.EventMap.empty,[]),st
   | n::ns ->
       if O.verbose > 1 then eprintf "COMPILE PROC: <%s>\n" (C.str_node n);
       begin match  n.C.edge.E.edge with
@@ -233,9 +251,8 @@ let get_fence n =
                    (fun f is -> let _,cs,_ = Comp.emit_fence st p init n f
                    in cs@is)
                    fs is))
-            chk loc_writes st p ro_prev init ns
-      | E.Exception _ ->
-          compile_proc pref chk loc_writes st p ro_prev init ns
+            chk loc_writes st p in_handler ro_prev init ns
+      | E.Exception _ -> assert false
       (* A single fence *)
       | E.Insert f ->
           let ro_prev,init,cs,st, n1 = match ro_prev with
@@ -245,9 +262,10 @@ let get_fence n =
             let ro_prev,init,cs,st =
               Comp.emit_fence_dp st p init n f dp r1 n1 in
               ro_prev,init,cs,st, n1 in
-          let init,is,finals,st =
-            compile_proc pref chk loc_writes st p (edge_to_prev_load ro_prev n1) init ns in
-          init,cs@is,finals,st
+          let init,compiled,finals,st =
+            compile_proc pref chk loc_writes st p in_handler
+              (edge_to_prev_load ro_prev n1) init ns in
+          init,add_code in_handler cs compiled,finals,st
       | _ ->
           let o,init,i,st = emit_access ro_prev st p init n in
           let nchk,add_check =
@@ -256,17 +274,33 @@ let get_fence n =
                 true,Comp.check_load p r n.C.evt
             | _ -> chk,no_check_load in
           let init,mk_c,st = add_check init st in
-          let init,is,finals,st =
+          let st,next_in_handler,enter,leave =
+            match n.C.exception_handler with
+            | None -> st,in_handler,None,[]
+            | Some ExcEnter ->
+                let r,code,st = Comp.emit_exc_enter st p in
+                st,true,Some (r,code),[]
+            | Some (Eret|EretNext as exception_handler) ->
+                let code,st =
+                  Comp.emit_eret (exception_handler = EretNext) st p in
+                st,false,None,code in
+          let init,compiled,finals,st =
             compile_proc pref nchk loc_writes
-              st p (edge_to_prev_load o n)
+              st p next_in_handler
+              (match n.C.exception_handler with
+               | None -> edge_to_prev_load o n
+               | Some _ -> No)
               init ns in
+          let compiled = match enter with
+            | Some (r,code) ->
+                {(add_code true code compiled) with handler_reg=Some r}
+            | None -> compiled in
           let init,cf,st =
             match get_fence n with
             | Some fe -> Comp.emit_fence st p init n fe
             | None -> init,[],st in
           add_init_check chk p o init,
-          i@
-          mk_c (cf@is),
+          map_code in_handler (fun is -> i@mk_c (cf@leave@is)) compiled,
           (match n.C.evt.C.loc with
           | Data loc ->
             let call_add =
@@ -428,7 +462,8 @@ let max_set = IntSet.max_elt
               i,cs,f@fs
           | _ ->
               let i,cs,fs = build_observers (p+1) i x vss in
-              i,c::cs,f@fs
+              let observer = ((p,None,MiscParser.Main),c),None in
+              i,observer::cs,f@fs
         with NoObserver -> build_observers p i x vss
 
   (* `env_wide` is a lookup table for the widths of locations and `atoms` is a set of all atom *)
@@ -736,9 +771,10 @@ let max_set = IntSet.max_elt
       | [] -> List.rev i,[],(C.EventMap.empty,[]),[],A.LocMap.empty
       | n::ns ->
           let init_st = A.remove_reg_allocator A.st0 (A.used_register i) in
-          let i,c,(m,f),st =
-            compile_proc Misc.identity false loc_writes init_st p No i n in
-          let i,c,st = compile_stores st p i n c in
+          let i,compiled,(m,f),st =
+            compile_proc Misc.identity false loc_writes
+              init_st p false No i n in
+          let i,c,st = compile_stores st p i n compiled.main in
           let xenv = Comp.get_xstore_results c in
           let f =
             List.fold_left
@@ -751,11 +787,18 @@ let max_set = IntSet.max_elt
             | (Cycle|Observe),Local ->
               add_co_local_check no_local_ptes lsts n st p i c f in
           let i,c,st = Comp.postlude st p i c in
+          let handler,f,st =
+            match compiled.handler_reg with
+            | Some r ->
+                Some ((p,None,MiscParser.FaultHandler),compiled.handler),
+                F.add_final_v p r (IntSet.singleton 1) f,st
+            | None -> None,f,st in
           let env_p = A.get_env st in
           let foks = gather_final_oks p st in
           let i,cs,(ms,fs),ios,env = do_rec (p+1) i ns in
           let io = U.io_of_thread n in
-          i,c::cs,
+          let main = (p,None,MiscParser.Main),c in
+          i,(main,handler)::cs,
           (C.union_map m ms,F.add_int_sets (f@fs) foks),
           io::ios,
           A.LocMap.union_std
@@ -975,9 +1018,8 @@ let max_set = IntSet.max_elt
   end)
 
   let add_proc_to_prog prog =
-    List.mapi ( fun index code ->
-      ((index, None, MiscParser.Main),code)
-    ) prog
+    let mains,handlers = List.split prog in
+    mains @ List.filter_map Fun.id handlers
 
   let dump_test_channel_full chan t =
     let core_dumper_name = {
@@ -1020,12 +1062,12 @@ let max_set = IntSet.max_elt
       | A.Label (lab,i) -> num_ins p (StringMap.add lab p m) i
       | _ -> m in
 
-    let num_code p  = List.fold_left (num_ins p) in
+    let num_code m ((p,_,_),code) = List.fold_left (num_ins p) m code in
 
-    let rec num_rec p m = function
+    let rec num_rec m = function
       | [] -> m
-      | c::cs -> num_rec (p+1) (num_code p m c) cs in
-    num_rec 0 StringMap.empty
+      | (main,_)::cs -> num_rec (num_code m main) cs in
+    num_rec StringMap.empty
 
 let tr_labs m init =
   List.map
