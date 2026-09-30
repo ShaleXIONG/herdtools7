@@ -37,7 +37,7 @@
   ## [Exp & R]; pick-addr-dep; [Exp & M]; po; [IFB]; po
   -safe [DpAddrCsel,ISB***,@after([ExpObs|Hat])]
   ## DSB-ob; [IFB]; po
-  -safe [ExpObs,DSB.SY***,ISB,@after([ExpObs|Hat])] [[DSB.LD*R*|DSB.ST*W*],ISB,@after([ExpObs|Hat])]
+  -safe [[DSB.LD*R*|DSB.ST*W*],ISB,@after([ExpObs|Hat])] [ExpObs,DSB.SY***,ISB,@after([ExpObs|Hat])]
   
   ### dob
   ## addr
@@ -79,9 +79,9 @@
   ## [range([A]; amo; [L])]; po; [(Exp & M) | (Imp & (Tag & R)) | (MMU & FAULT)]
   -safe [A,Amo.Safe,L,Po,@after([ExpObs|Hat])] [ExpObs,Po,A,Amo.Safe,L,Po,@after([ExpObs|Hat])]
   ## [L]; po; [A]
-  -safe [L,Po,A,[LxSx|Amo.Safe]?] [Hat?,[LxSx|Amo.Safe],L,Po,A,[LxSx|Amo.Safe]?]
+  -safe [Hat?,[LxSx|Amo.Safe],L,Po,A,[LxSx|Amo.Safe]?] [L,Po,A,[LxSx|Amo.Safe]?]
   ## [A | Q]; po; [(Exp & M) | (Imp & (Tag & R)) | (MMU & FAULT)]
-  -safe [[A|Q],[LxSx|Amo.Safe]?,Po,@after([ExpObs|Hat])] [Hat,[A|Q],[LxSx|Amo.Safe],Po,@after([ExpObs|Hat])]
+  -safe [Hat?,[A|Q],[LxSx|Amo.Safe],Po,@after([ExpObs|Hat])] [[A|Q],Po,@after([ExpObs|Hat])]
   ## [(Exp & M) | (Imp & (Tag & R))]; po; [L]
   -safe [ExpObs,Po,[LxSx|Amo.Safe]?,L]
   

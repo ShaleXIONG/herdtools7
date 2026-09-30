@@ -21,8 +21,8 @@ aarch64hwreqs.cat
   [DpCtrlCsel,ISB,@after([ExpObs|Hat])]
   [DpAddr,ISB***,@after([ExpObs|Hat])]
   [DpAddrCsel,ISB***,@after([ExpObs|Hat])]
-  [ExpObs,DSB.SY***,ISB,@after([ExpObs|Hat])]
   [[DSB.LD*R*|DSB.ST*W*],ISB,@after([ExpObs|Hat])]
+  [ExpObs,DSB.SY***,ISB,@after([ExpObs|Hat])]
   $ mcat2config7 --set-libdir ./libdir --let dob libdir/aarch64.cat
   [DpAddr,@after([ExpObs|Hat])]
   DpData*W
@@ -44,10 +44,10 @@ aarch64hwreqs.cat
   DMB.ST*WW
   [A,Amo.Safe,L,Po,@after([ExpObs|Hat])]
   [ExpObs,Po,A,Amo.Safe,L,Po,@after([ExpObs|Hat])]
-  [L,Po,A,[LxSx|Amo.Safe]?]
   [Hat?,[LxSx|Amo.Safe],L,Po,A,[LxSx|Amo.Safe]?]
-  [[A|Q],[LxSx|Amo.Safe]?,Po,@after([ExpObs|Hat])]
-  [Hat,[A|Q],[LxSx|Amo.Safe],Po,@after([ExpObs|Hat])]
+  [L,Po,A,[LxSx|Amo.Safe]?]
+  [Hat?,[A|Q],[LxSx|Amo.Safe],Po,@after([ExpObs|Hat])]
+  [[A|Q],Po,@after([ExpObs|Hat])]
   [ExpObs,Po,[LxSx|Amo.Safe]?,L]
 aarch64deps.cat
   $ mcat2config7 --set-libdir ./libdir --let lwfs libdir/aarch64.cat
