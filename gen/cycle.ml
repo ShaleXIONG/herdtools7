@@ -722,7 +722,10 @@ let remove_store n0 =
           Warn.fatal "Ambiguous direction %s %s"
             (E.pp_edge p.edge) (E.pp_edge m.edge)
       | (Dir d,Irr)|(Irr,Dir d) -> d
-(*      | Dir W,Dir R when is_rmw W m -> R  *)
+      (* A data dependency to the write side of an RMW also reaches its read
+         side, as both sides belong to the same instruction. Keep the read
+         side as the canonical form. *)
+      | Dir W,Dir R when E.is_dp_data p.edge.E.edge && is_rmw_edge m.edge -> R
       | Dir d1,Dir d2 ->
           if d1=d2 then d1
           else
