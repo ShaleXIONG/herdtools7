@@ -407,6 +407,17 @@ let filter_unsupported_relations =
     | _ -> true)
 
 let add_external_communication_edges l relaxs =
+  let optional_hat_prefix =
+    let rec first_relation_is_rmw = function
+      | Ir.Set _ :: items -> first_relation_is_rmw items
+      | Ir.Rel (Inter relations) :: _ ->
+          List.exists
+            (fun (relation : prim_rel) ->
+              match relation with Ir.Prim "rmw" -> true | _ -> false)
+            relations
+      | [] -> false in
+    first_relation_is_rmw l
+  in
   let prefix_external_communication_edge =
     match l with
     (* For example, `[M]; po; [dmb.full]; ...`. *)
@@ -423,6 +434,15 @@ let add_external_communication_edges l relaxs =
     (* For example, a standalone `addr` leaves its target open. *)
     | edge :: _ -> dependency_has_open_target edge
     | _ -> false
+  in
+  let relaxs =
+    if optional_hat_prefix then
+      relaxs @
+      List.map
+        (fun relax ->
+          concat_relax [Ast.One (Concrete E.(plain_edge Hat)); relax])
+        relaxs
+    else relaxs
   in
   let relaxs =
     if prefix_external_communication_edge then

@@ -65,9 +65,9 @@
   
   ### aob
   ## [Exp & M]; rmw; [Exp & M]
-  -safe LxSx Amo.Safe
+  -safe LxSx Amo.Safe [Hat,LxSx] [Hat,Amo.Safe]
   ## [Exp & M]; rmw; lrs; [A | Q]
-  -safe [LxSx,PosWR,A] [Amo.Safe,PosWR,A] [LxSx,PosWR,A,LxSx] [Amo.Safe,PosWR,A,LxSx] [LxSx,PosWR,A,Amo.Safe] [Amo.Safe,PosWR,A,Amo.Safe] [LxSx,PosWR,Q] [Amo.Safe,PosWR,Q] [LxSx,PosWR,Q,LxSx] [Amo.Safe,PosWR,Q,LxSx] [LxSx,PosWR,Q,Amo.Safe] [Amo.Safe,PosWR,Q,Amo.Safe]
+  -safe [LxSx,PosWR,A] [Amo.Safe,PosWR,A] [Hat,LxSx,PosWR,A] [Hat,Amo.Safe,PosWR,A] [LxSx,PosWR,A,LxSx] [Amo.Safe,PosWR,A,LxSx] [LxSx,PosWR,A,Amo.Safe] [Amo.Safe,PosWR,A,Amo.Safe] [Hat,LxSx,PosWR,A,LxSx] [Hat,Amo.Safe,PosWR,A,LxSx] [Hat,LxSx,PosWR,A,Amo.Safe] [Hat,Amo.Safe,PosWR,A,Amo.Safe] [LxSx,PosWR,Q] [Amo.Safe,PosWR,Q] [Hat,LxSx,PosWR,Q] [Hat,Amo.Safe,PosWR,Q] [LxSx,PosWR,Q,LxSx] [Amo.Safe,PosWR,Q,LxSx] [LxSx,PosWR,Q,Amo.Safe] [Amo.Safe,PosWR,Q,Amo.Safe] [Hat,LxSx,PosWR,Q,LxSx] [Hat,Amo.Safe,PosWR,Q,LxSx] [Hat,LxSx,PosWR,Q,Amo.Safe] [Hat,Amo.Safe,PosWR,Q,Amo.Safe]
   
   ### bob
   ## [(Exp & M) | (Imp & (Tag & R))]; po; [dmb.full]; po; [(Exp & M) | (Imp & (Tag & R)) | (MMU & FAULT)]
@@ -79,9 +79,9 @@
   ## [range([A]; amo; [L])]; po; [(Exp & M) | (Imp & (Tag & R)) | (MMU & FAULT)]
   -safe [A,Amo.Safe,L,Po,@after([ExpObs|Hat])]
   ## [L]; po; [A]
-  -safe [L,Po,A] [L,Po,A,LxSx] [L,Po,A,Amo.Safe] [LxSx,L,Po,A] [Amo.Safe,L,Po,A] [LxSx,L,Po,A,LxSx] [Amo.Safe,L,Po,A,LxSx] [LxSx,L,Po,A,Amo.Safe] [Amo.Safe,L,Po,A,Amo.Safe]
+  -safe [L,Po,A] [L,Po,A,LxSx] [L,Po,A,Amo.Safe] [LxSx,L,Po,A] [Amo.Safe,L,Po,A] [Hat,LxSx,L,Po,A] [Hat,Amo.Safe,L,Po,A] [LxSx,L,Po,A,LxSx] [Amo.Safe,L,Po,A,LxSx] [LxSx,L,Po,A,Amo.Safe] [Amo.Safe,L,Po,A,Amo.Safe] [Hat,LxSx,L,Po,A,LxSx] [Hat,Amo.Safe,L,Po,A,LxSx] [Hat,LxSx,L,Po,A,Amo.Safe] [Hat,Amo.Safe,L,Po,A,Amo.Safe]
   ## [A | Q]; po; [(Exp & M) | (Imp & (Tag & R)) | (MMU & FAULT)]
-  -safe [A,Po,@after([ExpObs|Hat])] [A,LxSx,Po,@after([ExpObs|Hat])] [A,Amo.Safe,Po,@after([ExpObs|Hat])] [Q,Po,@after([ExpObs|Hat])] [Q,LxSx,Po,@after([ExpObs|Hat])] [Q,Amo.Safe,Po,@after([ExpObs|Hat])]
+  -safe [A,Po,@after([ExpObs|Hat])] [A,LxSx,Po,@after([ExpObs|Hat])] [A,Amo.Safe,Po,@after([ExpObs|Hat])] [Hat,A,LxSx,Po,@after([ExpObs|Hat])] [Hat,A,Amo.Safe,Po,@after([ExpObs|Hat])] [Q,Po,@after([ExpObs|Hat])] [Q,LxSx,Po,@after([ExpObs|Hat])] [Q,Amo.Safe,Po,@after([ExpObs|Hat])] [Hat,Q,LxSx,Po,@after([ExpObs|Hat])] [Hat,Q,Amo.Safe,Po,@after([ExpObs|Hat])]
   ## [(Exp & M) | (Imp & (Tag & R))]; po; [L]
   -safe [ExpObs,Po,L] [ExpObs,Po,LxSx,L] [ExpObs,Po,Amo.Safe,L]
   
