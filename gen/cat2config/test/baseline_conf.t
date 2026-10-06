@@ -77,7 +77,7 @@
   ## [Exp & W]; po; [dmb.st]; po; [(Exp & W) | (MMU & FAULT)]
   -safe DMB.ST*WW
   ## [range([A]; amo; [L])]; po; [(Exp & M) | (Imp & (Tag & R)) | (MMU & FAULT)]
-  -safe [A,Amo.Safe,L,Po,@after([ExpObs|Hat])]
+  -safe [A,Amo.Safe,L,Po,@after([ExpObs|Hat])] [ExpObs,Po,A,Amo.Safe,L,Po,@after([ExpObs|Hat])]
   ## [L]; po; [A]
   -safe [L,Po,A] [L,Po,A,LxSx] [L,Po,A,Amo.Safe] [LxSx,L,Po,A] [Amo.Safe,L,Po,A] [Hat,LxSx,L,Po,A] [Hat,Amo.Safe,L,Po,A] [LxSx,L,Po,A,LxSx] [Amo.Safe,L,Po,A,LxSx] [LxSx,L,Po,A,Amo.Safe] [Amo.Safe,L,Po,A,Amo.Safe] [Hat,LxSx,L,Po,A,LxSx] [Hat,Amo.Safe,L,Po,A,LxSx] [Hat,LxSx,L,Po,A,Amo.Safe] [Hat,Amo.Safe,L,Po,A,Amo.Safe]
   ## [A | Q]; po; [(Exp & M) | (Imp & (Tag & R)) | (MMU & FAULT)]

@@ -71,6 +71,7 @@ aarch64hwreqs.cat
   [DMB.LD*R*,@after([ExpObs|Hat])]
   DMB.ST*WW
   [A,Amo.Safe,L,Po,@after([ExpObs|Hat])]
+  [ExpObs,Po,A,Amo.Safe,L,Po,@after([ExpObs|Hat])]
   [L,Po,A]
   [L,Po,A,LxSx]
   [L,Po,A,Amo.Safe]
