@@ -24,6 +24,9 @@ end
 module E = Edge.Make (EdgeConfig) (A : Fence.S) (A : Atom.S)
 module R = Relax.Make (A) (E)
 
+type prune = Pos_w
+let prune_all = [Pos_w]
+
 let merge_dir_opt d1 d2 =
   let open Code in
   match (d1, d2) with
@@ -772,7 +775,7 @@ let translate_seq (Seq l : seq_item Ir.seq) : concrete_relax list =
   let relaxs = if st.core = [] then st.relaxs else [] in
   add_external_communication_edges l relaxs
 
-let translate ~binding (nf : Ir.rel_nf) : relax list =
+let translate ~prune ~binding (nf : Ir.rel_nf) : relax list =
   Log.info (fun m -> m "Translating component of `%s`" binding);
   Log.debug (fun m -> m "`%s` expression:@.%a" binding Ir.pp_rel_nf nf);
   let nf = Ir.expand_acq_rel nf in
@@ -785,8 +788,9 @@ let translate ~binding (nf : Ir.rel_nf) : relax list =
     List.fold_left (fun acc seq -> acc @ translate_seq seq) [] (Ir.get_union nf)
   in
   let relaxs = Util.List.uniq ~eq:( = ) relaxs in
+  let relaxs =
+    if List.mem Pos_w prune then prune_relaxes relaxs else relaxs in
   relaxs
-  |> prune_relaxes
   |> fold_relaxes
 
 let pp_relax_item = function

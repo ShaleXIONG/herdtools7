@@ -15,6 +15,8 @@
 (****************************************************************************)
 
 type relax (* Type of diy relaxations with predicates *)
+type prune = Pos_w
+val prune_all : prune list
 
 val pp_relax : relax -> string
 
@@ -26,4 +28,4 @@ val resolve_predicates : Ir.rel_nf list -> Ir.rel_nf list
    Each relaxation from this list is to be interpreted as a stand-alone,
    alternative representation, out of possibly many, of the input relation.
  *)
-val translate : binding:string -> Ir.rel_nf -> relax list
+val translate : prune:prune list -> binding:string -> Ir.rel_nf -> relax list
