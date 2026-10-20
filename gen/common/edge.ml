@@ -79,6 +79,7 @@ module type S = sig
 
   val fold_atomo : (atom option -> 'a -> 'a) -> 'a -> 'a
   val fold_atomo_list : atom option list -> (atom option -> 'a -> 'a) -> 'a -> 'a
+  val fold_edge_macros : (string -> edge list list -> 'a -> 'a) -> 'a -> 'a
   val fold_edge_wildcards : (string -> edge list list -> 'a -> 'a) -> 'a -> 'a
   val fold_edge_legacy_aliases :
     (string -> edge list list -> 'a -> 'a) -> 'a -> 'a
@@ -179,11 +180,16 @@ and module Value = A.Value
 and type value = A.Value.v
 and module RMW = A.RMW = struct
   let do_self = Variant_gen.has Variant_gen.Self Cfg.variant
+  let do_memtag = Variant_gen.has Variant_gen.MemTag Cfg.variant
   let do_mixed = Variant_gen.is_mixed Cfg.variant
   let do_kvm =  Variant_gen.is_kvm Cfg.variant
+  let do_exception_handler = do_memtag || do_kvm
   let do_disjoint = Variant_gen.has Variant_gen.MixedDisjoint Cfg.variant
   let do_strict_overlap = Variant_gen.has Variant_gen.MixedStrictOverlap Cfg.variant
   let wildcard = Cfg.wildcard
+
+  let fold_exception_handlers f r =
+    if do_exception_handler then Code.fold_exception_handler f r else r
 
   open Code
 
@@ -381,7 +387,7 @@ let fold_tedges f r =
   (* Program-order edges. *)
   |> fold_sd_extr_extr (fun sd e1 e2 r -> f (Po (sd,e1,e2)) r)
   (* Exception-handler pseudo-edges. *)
-  |> fold_exception_handler
+  |> fold_exception_handlers
     (fun exception_handler r -> f (Exception exception_handler) r)
   (* Fence insertion pseudo-edges. *)
   |> F.fold_all_fences (fun fe -> f (Insert fe))
@@ -813,6 +819,48 @@ let fold_tedges f r =
         f (pp_po_macro sd d1 d2) choices k)
       k
 
+  let make_exception_handler_choice exception_handler sd d1 d2 =
+    [plain_edge (Exception exception_handler);
+     plain_edge (Po (sd,d1,d2))]
+
+  let fold_exception_handler_macros f r =
+    if do_exception_handler then f ExcEnter (f EretNext r) else r
+
+  let add_exception_handler_macros f k =
+    fold_exception_handler_macros
+      (fun exception_handler k ->
+        fold_sd_extr_extr
+          (fun sd d1 d2 k ->
+            let name =
+              sprintf "%s%s%s%s"
+                (pp_exception_handler exception_handler)
+                (pp_sd sd) (pp_extr d1) (pp_extr d2) in
+            f name
+              [make_exception_handler_choice exception_handler sd d1 d2] k)
+          k)
+      k
+
+  let fold_edge_macros = add_exception_handler_macros
+
+  let add_exception_handler_wildcards f k =
+    fold_exception_handler_macros
+      (fun exception_handler k ->
+        fold_sd_extr_extr_macros
+          (fun sd d1 d2 choices k ->
+            let name =
+              sprintf "%s%s%s%s"
+                (pp_exception_handler exception_handler)
+                (pp_sd_macro sd) (pp_dir_macro d1) (pp_dir_macro d2) in
+            let choices =
+              List.map
+                (fun (sd,d1,d2) ->
+                  make_exception_handler_choice
+                    exception_handler sd (Dir d1) (Dir d2))
+                choices in
+            f name choices k)
+          k)
+      k
+
   let add_fence_macros f k =
     let pp_fence_macro fe sd d1 d2 = match sd,d1,d2 with
     | None,None,None -> sprintf "%s***" (F.pp_fence fe)
@@ -949,6 +997,8 @@ let fold_tedges f r =
         add_dp_macros pp_dp_macro dp f)
     (* Add `Po` related macro *)
     |> add_po_macros f
+    (* Add exception-handler macros carrying program-order components. *)
+    |> add_exception_handler_wildcards f
     (* Add fence-related macro *)
     |> add_fence_macros f
 
