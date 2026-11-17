@@ -36,9 +36,19 @@ module type PteType = sig
   val need_check_fault : atom option -> Code.extr
 end
 
+module GCSCapState = struct
+  type t = Valid | Inprogress
+  let compare lhs rhs = match lhs,rhs with
+    | Valid,Valid | Inprogress,Inprogress -> 0
+    | Valid,Inprogress -> -1
+    | Inprogress,Valid -> 1
+  let pp = function Valid -> "valid" | Inprogress -> "inprogress"
+end
+
 module type S = sig
   include PteType
-  type v = NoValue | Plain of int | PteValue of pte
+  type gcs_entry = GCSValue of int | GCSCap of Code.loc * GCSCapState.t
+  type v = NoValue | Plain of int | PteValue of pte | GCS of gcs_entry array
   type env = (string * v) list
   val pp_v : ?hexa:bool -> v -> string
   val no_value : v
@@ -54,7 +64,8 @@ end
 module Make(P:PteType) = struct
 
   include P
-  type v = NoValue | Plain of int | PteValue of pte
+  type gcs_entry = GCSValue of int | GCSCap of Code.loc * GCSCapState.t
+  type v = NoValue | Plain of int | PteValue of pte | GCS of gcs_entry array
   type env = (string * v) list
 
   let no_value = NoValue
@@ -71,6 +82,14 @@ module Make(P:PteType) = struct
   *)
 
   let value_compare lhs rhs =
+    let compare_gcs_entry lhs rhs =
+      match lhs,rhs with
+      | GCSValue lhs,GCSValue rhs -> Base.Misc.int_compare lhs rhs
+      | GCSValue _,GCSCap _ -> -1
+      | GCSCap _,GCSValue _ -> 1
+      | GCSCap (lhs_loc,lhs_idx),GCSCap (rhs_loc,rhs_idx) ->
+          let c = Code.loc_compare lhs_loc rhs_loc in
+          if c <> 0 then c else GCSCapState.compare lhs_idx rhs_idx in
     match lhs, rhs with
     | NoValue, NoValue -> 0
     | NoValue, _ -> -1
@@ -78,12 +97,22 @@ module Make(P:PteType) = struct
     | Plain _, NoValue -> 1
     | Plain _, _ -> -1
     | PteValue lhs, PteValue rhs -> pte_compare lhs rhs
+    | PteValue _, GCS _ -> -1
     | PteValue _, _ -> 1
+    | GCS lhs,GCS rhs -> Array.compare compare_gcs_entry lhs rhs
+    | GCS _,_ -> 1
+
+  let pp_gcs_entry ~hexa = function
+    | GCSValue v -> Printf.sprintf (if hexa then "0x%x" else "%d") v
+    | GCSCap (loc,state) -> Printf.sprintf "SSCap(%s,%s)" (Code.pp_loc loc) (GCSCapState.pp state)
 
   let pp_v ?(hexa=false) = function
     | NoValue -> "**"
     | Plain v -> Printf.sprintf (if hexa then "0x%x" else "%d") v
     | PteValue p -> pp_pte p
+    | GCS es ->
+        Printf.sprintf "ssval_t: {%s}"
+          (String.concat "," (List.map (pp_gcs_entry ~hexa) (Array.to_list es)))
 end
 
 module NoPte(A:sig type arch_atom end) = struct
