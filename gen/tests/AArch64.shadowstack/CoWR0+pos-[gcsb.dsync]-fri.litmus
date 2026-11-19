@@ -1,5 +1,6 @@
-(* diyone7 -arch AArch64 -metadata false -oneloc PosWR GCSB.DSYNC Fri *)
+(* diyone7 -arch AArch64 -variant shadowstack -metadata false -oneloc PosWR GCSB.DSYNC Fri *)
 AArch64 CoWR0+pos-[gcsb.dsync]-fri
+Variant=shadowstack
 {
  0:X1=x;
 }

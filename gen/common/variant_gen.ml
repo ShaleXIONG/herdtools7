@@ -30,6 +30,7 @@ type t =
   | Self
 (* MTE = Memory tagging *)
   | MemTag
+  | ShadowStack
 (* C: Prevents the use of Volatile to capture bugs in compilation *)
   | NoVolatile
 (* Morello C64 instruction set *)
@@ -67,13 +68,13 @@ let has = Set.mem
 let tags =
   ["AsAmo";"ConstsInInit";
    "Mixed";"FullMixed";"MixedDisjoint"; "MixedStrictOverlap";
-   "Ifetch(Self)"; "MemTag";
+   "Ifetch(Self)"; "MemTag"; "ShadowStack";
    "NoVolatile"; "Morello"; "VMSA(KVM)"; "NoFault";
    "Sync"; "Async"; "StoreOnly"; "Neon"; "ConstrainedUnpredictable"; ]
 
 let all_t =
   [ AsAmo ; ConstsInInit ; Mixed ; FullMixed ; MixedDisjoint ; MixedStrictOverlap ;
-    Self ; MemTag ; NoVolatile ; Morello ; KVM ; NoFault ;
+    Self ; MemTag ; ShadowStack ; NoVolatile ; Morello ; KVM ; NoFault ;
     Sync ; Async ; StoreOnly ; Neon ; SVE ; SME ; ConstrainedUnpredictable ]
 
 let parse tag = match Base.Misc.lowercase tag with
@@ -85,6 +86,7 @@ let parse tag = match Base.Misc.lowercase tag with
 | "mixedstrictoverlap"|"strictoverlap" -> Some MixedStrictOverlap
 | "ifetch" | "self" -> Some Self
 | "memtag" -> Some MemTag
+| "shadowstack" -> Some ShadowStack
 | "novolatile" -> Some NoVolatile
 | "morello" -> Some Morello
 | "kvm" | "vmsa" -> Some KVM
@@ -107,6 +109,7 @@ let pp = function
   | MixedStrictOverlap -> "MixedStrictOverlap"
   | Self -> "Ifetch"
   | MemTag -> "MemTag"
+  | ShadowStack -> "ShadowStack"
   | NoVolatile -> "NoVolatile"
   | Morello -> "Morello"
   | KVM -> "VMSA"
@@ -127,6 +130,7 @@ let pp_herd_variant = function
   | Mixed | FullMixed | MixedDisjoint | MixedStrictOverlap -> Some "mixed"
   | Self -> Some "ifetch"
   | MemTag -> Some "memtag"
+  | ShadowStack -> Some "shadowstack"
   | Sync -> Some "sync"
   | Async -> Some "async"
   | StoreOnly -> Some "store-only"

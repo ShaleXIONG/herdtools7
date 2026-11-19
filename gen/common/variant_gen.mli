@@ -30,6 +30,7 @@ type t =
   | Self
 (* MTE = Memory tagging *)
   | MemTag
+  | ShadowStack
 (* C: Prevents the use of Volatile to capture bugs in compilation *)
   | NoVolatile
 (* Morello C64 instruction set *)

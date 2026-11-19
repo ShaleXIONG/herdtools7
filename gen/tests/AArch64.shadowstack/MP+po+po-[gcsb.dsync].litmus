@@ -1,5 +1,6 @@
-(* diyone7 -arch AArch64 -metadata false PodWW Rfe PodRR GCSB.DSYNC Fre *)
+(* diyone7 -arch AArch64 -variant shadowstack -metadata false PodWW Rfe PodRR GCSB.DSYNC Fre *)
 AArch64 MP+po+po-[gcsb.dsync]
+Variant=shadowstack
 {
  0:X1=x; 0:X3=y;
  1:X1=x; 1:X3=y;

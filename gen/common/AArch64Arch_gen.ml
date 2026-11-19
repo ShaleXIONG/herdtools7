@@ -33,6 +33,7 @@ module Make
 
 let do_self = Variant_gen.has Variant_gen.Self C.variant
 let do_memtag = Variant_gen.has Variant_gen.MemTag C.variant
+let do_shadowstack = Variant_gen.has Variant_gen.ShadowStack C.variant
 let do_store_only = Variant_gen.has Variant_gen.StoreOnly C.variant
 let do_morello = C.do_morello
 let do_kvm = Variant_gen.has Variant_gen.KVM C.variant
@@ -1103,7 +1104,7 @@ let fold_all_fences f k =
   let k = fold_shootdown f k in
   let k = fold_cachesync f k in
   let k = fold_cmo f k in
-  fold_barrier (fun b k -> f (Barrier b) k) k
+  fold_barrier (fun b k -> match b with GCSB when not do_shadowstack -> k | _ -> f (Barrier b) k) k
 
 
 let fold_some_fences f k =
